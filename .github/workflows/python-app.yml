@@ -3,26 +3,36 @@ name: Python Selenium Scraper
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *' # every day at 6 AM UTC
+    - cron: '0 6 * * *'  # Every day at 6 AM UTC
 
 jobs:
-  build:
+  scraper:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      # 1️⃣ Checkout your repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Set up Python
+      # 2️⃣ Set up Python
+      - name: Set up Python 3.9
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9.12'
+          python-version: '3.9'
 
-      - name: Install Chrome and ChromeDriver
+      # 3️⃣ Install system dependencies (for Chrome & Selenium)
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip xvfb libxi6 gconf-service
+          sudo apt-get install -y wget unzip xvfb libxi6 libnss3 fonts-liberation libatk-bridge2.0-0 libgtk-3-0
+
+      # 4️⃣ Install Chrome and ChromeDriver
+      - name: Install Chrome & ChromeDriver
+        run: |
+          # Install latest stable Chrome
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
+          # Install ChromeDriver matching latest stable
           DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
           wget -q "https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip"
           unzip chromedriver-linux64.zip
@@ -30,18 +40,16 @@ jobs:
           sudo chmod +x /usr/local/bin/chromedriver
           rm -rf chromedriver-linux64*
 
-
-      - name: Install dependencies
+      # 5️⃣ Upgrade pip and install Python dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-
-      - name: Install Chrome
+      # 6️⃣ Run scraper
+      - name: Run Selenium scraper
+        env:
+          TMP_DOWNLOAD_DIR: ${{ github.workspace }}/tmp_downloads
         run: |
-          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt install ./google-chrome-stable_current_amd64.deb -y
-
-      - name: Run scraper
-        run: |
+          mkdir -p $TMP_DOWNLOAD_DIR
           python main.py
