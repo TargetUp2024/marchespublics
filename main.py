@@ -29,7 +29,7 @@ options.add_experimental_option("prefs", prefs)
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
-ptions.add_argument("--headless=new")  # Uncomment to run headless
+options.add_argument("--headless=new")  # Uncomment to run headless
 
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
