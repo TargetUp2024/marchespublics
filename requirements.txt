@@ -1,0 +1,6 @@
+selenium>=4.15.0
+pandas>=2.1.0
+PyPDF2>=3.1.0
+python-docx>=0.8.12
+openpyxl>=3.1.2
+chardet>=5.1.0
