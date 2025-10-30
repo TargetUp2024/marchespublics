@@ -34,10 +34,13 @@ prefs = {
     "safebrowsing.enabled": True,
 }
 options.add_experimental_option("prefs", prefs)
+options.add_argument("--headless=new")  # use new headless mode
+options.add_argument("--disable-gpu")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--remote-debugging-port=9222")  # sometimes helps on CI
 options.add_argument("--window-size=1920,1080")
-# options.add_argument("--headless=new")  # Uncomment for headless
+
 
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
