@@ -44,10 +44,24 @@ def human_type(element, text):
         time.sleep(random.uniform(0.08, 0.25))
 
 def js_click(element):
-    driver.execute_script("arguments[0].scrollIntoView(true); window.scrollBy(0, -100);", element)
-    time.sleep(random.uniform(0.3, 0.6))
-    driver.execute_script("arguments[0].click();", element)
-    time.sleep(random.uniform(0.5, 1.0))
+    try:
+        driver.execute_script("arguments[0].scrollIntoView(true); window.scrollBy(0, -100);", element)
+        time.sleep(random.uniform(0.3, 0.6))
+        driver.execute_script("arguments[0].click();", element)
+        time.sleep(random.uniform(0.5, 1.0))
+    except Exception as e:
+        print(f"[WARN] JS click failed: {e}")
+        save_screenshot("click_error")
+        raise
+
+def save_screenshot(name="error"):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(os.getcwd(), f"{name}_{timestamp}.png")
+    try:
+        driver.save_screenshot(path)
+        print(f"[INFO] Screenshot saved: {path}")
+    except Exception as e:
+        print(f"[WARN] Failed to save screenshot: {e}")
 
 def extract_text_from_file(file_path):
     text = ""
@@ -78,48 +92,59 @@ def extract_text_from_file(file_path):
 
 # ------------------------
 # LOGIN
-driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
-time.sleep(2)
+try:
+    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
+    time.sleep(2)
 
-login_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_login")
-password_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password")
-ok_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton")
+    login_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_login")
+    password_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password")
+    ok_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton")
 
-email = "TARGETUPCONSULTING"
-password = "pgwr00jPD@"
+    email = "TARGETUPCONSULTING"
+    password = "pgwr00jPD@"
 
-print("[INFO] Typing credentials...")
-human_type(login_input, email)
-time.sleep(random.uniform(0.5, 1.0))
-human_type(password_input, password)
-time.sleep(random.uniform(0.5, 1.0))
-js_click(ok_button)
-time.sleep(2)
-print("[INFO] Logged in successfully.")
+    print("[INFO] Typing credentials...")
+    human_type(login_input, email)
+    time.sleep(random.uniform(0.5, 1.0))
+    human_type(password_input, password)
+    time.sleep(random.uniform(0.5, 1.0))
+    js_click(ok_button)
+    time.sleep(2)
+    print("[INFO] Logged in successfully.")
+except Exception as e:
+    print(f"[ERROR] Login failed: {e}")
+    save_screenshot("login_error")
+    raise
 
 # ------------------------
 # SEARCH FOR YESTERDAY
-driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
-time.sleep(2)
+try:
+    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
+    time.sleep(2)
 
-date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
-yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
-date_input.clear()
-for char in yesterday:
-    date_input.send_keys(char)
-    time.sleep(random.uniform(0.08,0.2))
+    date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+    date_input.clear()
+    for char in yesterday:
+        date_input.send_keys(char)
+        time.sleep(random.uniform(0.08,0.2))
 
-search_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")))
-js_click(search_button)
-time.sleep(2)
-print(f"[INFO] Searching for tenders posted on {yesterday}...")
+    search_button = wait.until(EC.element_to_be_clickable(
+        (By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")))
+    js_click(search_button)
+    time.sleep(2)
+    print(f"[INFO] Searching for tenders posted on {yesterday}...")
 
-dropdown = Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop"))
-dropdown.select_by_value("500")
-time.sleep(2)
+    dropdown = Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop"))
+    dropdown.select_by_value("500")
+    time.sleep(2)
 
-rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
-print(f"[INFO] Found {len(rows)} rows on the page.")
+    rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
+    print(f"[INFO] Found {len(rows)} rows on the page.")
+except Exception as e:
+    print(f"[ERROR] Search failed: {e}")
+    save_screenshot("search_error")
+    raise
 
 data = []
 
@@ -168,6 +193,7 @@ for idx, row in enumerate(rows, start=1):
 
     except Exception as e:
         print(f"[ERROR] Row {idx} failed: {e}")
+        save_screenshot(f"row_{idx}_error")
 
 # ------------------------
 # SAVE TO CSV
