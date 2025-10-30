@@ -1,103 +1,52 @@
 import os
 import time
 import zipfile
-import random
-import shutil
-import tempfile
-from pathlib import Path
 import pandas as pd
-import PyPDF2
-import docx
-import openpyxl
-import chardet
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import Select
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+import random
+
+# Additional imports for file parsing
+import PyPDF2
+import docx
 
 # ------------------------
-# Configuration
+# CONFIGURATION
+DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
 options = webdriver.ChromeOptions()
 prefs = {
+    "download.default_directory": DOWNLOAD_DIR,
     "download.prompt_for_download": False,
-    "download.directory_upgrade": True,
+    "directory_upgrade": True,
     "safebrowsing.enabled": True,
 }
 options.add_experimental_option("prefs", prefs)
+options.add_argument("--headless=new")  # headless for GitHub Actions
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
-options.add_argument("--headless=new")  # Uncomment to run headless
 
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 10)
 
-# ------------------------
-# TEMPORARY FOLDER
-temp_dir = tempfile.mkdtemp()
+print("[INFO] Browser initialized in headless mode...")
 
 # ------------------------
-# Helper Functions
+# LOGIN
+driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
+time.sleep(2)
+
 def human_type(element, text):
     for char in text:
         element.send_keys(char)
         time.sleep(random.uniform(0.08, 0.25))
-
-def extract_text_from_file(file_path):
-    text = ""
-    file_path = Path(file_path)
-    if file_path.suffix.lower() == ".pdf":
-        try:
-            with open(file_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception as e:
-            print(f"PDF read error: {e}")
-    elif file_path.suffix.lower() == ".docx":
-        try:
-            doc = docx.Document(file_path)
-            text = "\n".join([p.text for p in doc.paragraphs])
-        except Exception as e:
-            print(f"DOCX read error: {e}")
-    elif file_path.suffix.lower() == ".xlsx":
-        try:
-            xls = pd.ExcelFile(file_path)
-            sheets_text = []
-            for sheet in xls.sheet_names:
-                df_sheet = xls.parse(sheet).astype(str).apply(lambda x: " ".join(x), axis=1)
-                sheets_text.append(df_sheet.str.cat(sep="\n"))
-            text = "\n".join(sheets_text)
-        except Exception as e:
-            print(f"XLSX read error: {e}")
-    elif file_path.suffix.lower() == ".csv":
-        try:
-            with open(file_path, "rb") as f:
-                result = chardet.detect(f.read())
-            df_csv = pd.read_csv(file_path, encoding=result['encoding'])
-            text = df_csv.astype(str).apply(lambda x: " ".join(x), axis=1).str.cat(sep="\n")
-        except Exception as e:
-            print(f"CSV read error: {e}")
-    return text
-
-def process_download(file_path):
-    file_path = Path(file_path)
-    extracted_texts = []
-    if zipfile.is_zipfile(file_path):
-        with zipfile.ZipFile(file_path, "r") as zip_ref:
-            zip_ref.extractall(temp_dir)
-            for f in zip_ref.namelist():
-                extracted_texts.append(extract_text_from_file(Path(temp_dir)/f))
-    else:
-        extracted_texts.append(extract_text_from_file(file_path))
-    return "\n".join(extracted_texts)
-
-# ------------------------
-# LOGIN AND NAVIGATION
-driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
-time.sleep(2)
 
 login_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_login")
 password_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password")
@@ -106,13 +55,17 @@ ok_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton
 email = "TARGETUPCONSULTING"
 password = "pgwr00jPD@"
 
+print("[INFO] Typing credentials...")
 human_type(login_input, email)
-time.sleep(random.uniform(0.5, 1.2))
+time.sleep(random.uniform(0.5,1))
 human_type(password_input, password)
-time.sleep(random.uniform(0.5, 1.5))
+time.sleep(random.uniform(0.5,1))
 ok_button.click()
+time.sleep(2)
+print("[INFO] Logged in successfully.")
 
-# SEARCH
+# ------------------------
+# SEARCH FOR YESTERDAY
 driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
 time.sleep(2)
 
@@ -121,82 +74,107 @@ yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
 date_input.clear()
 for char in yesterday:
     date_input.send_keys(char)
-    time.sleep(random.uniform(0.08, 0.2))
-time.sleep(random.uniform(0.5, 1))
+    time.sleep(random.uniform(0.08,0.2))
 
 search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
-driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", search_button)
-time.sleep(random.uniform(0.5, 1.2))
 search_button.click()
 time.sleep(2)
+print(f"[INFO] Searching for tenders posted on {yesterday}...")
 
 dropdown = Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop"))
-dropdown.select_by_value("500")
+dropdown.select_by_value("10")
 time.sleep(2)
 
 rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
+print(f"[INFO] Found {len(rows)} rows on the page.")
 
 data = []
-for row in rows:
+
+# ------------------------
+# Helper function to extract text from various file types
+def extract_text_from_file(file_path):
+    text = ""
+    if zipfile.is_zipfile(file_path):
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.extractall(DOWNLOAD_DIR)
+            for f in zip_ref.namelist():
+                path = os.path.join(DOWNLOAD_DIR, f)
+                text += extract_text_from_file(path) + "\n"
+    elif file_path.endswith(".txt"):
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            text = f.read()
+    elif file_path.endswith(".pdf"):
+        try:
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+        except:
+            text = ""
+    elif file_path.endswith(".docx"):
+        try:
+            doc = docx.Document(file_path)
+            text = "\n".join([p.text for p in doc.paragraphs])
+        except:
+            text = ""
+    elif file_path.endswith(".xlsx") or file_path.endswith(".csv"):
+        try:
+            df_file = pd.read_excel(file_path) if file_path.endswith(".xlsx") else pd.read_csv(file_path)
+            text = df_file.astype(str).apply(lambda x: ' '.join(x), axis=1).str.cat(sep='\n')
+        except:
+            text = ""
+    return text
+
+# ------------------------
+# PROCESS ROWS & DOWNLOAD FILES
+for idx, row in enumerate(rows, start=1):
     try:
         ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
         objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
         buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
         lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
-        deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
+        deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n"," ")
         first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
+
+        print(f"[INFO] Processing row {idx}/{len(rows)}: {ref}")
+
+        # Go to download page
+        driver.get(first_button)
+        time.sleep(2)
+
+        checkbox = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")
+        if not checkbox.is_selected():
+            checkbox.click()
+            time.sleep(0.5)
+        driver.find_element(By.ID, "ctl0_CONTENU_PAGE_validateButton").click()
+        time.sleep(1)
+        driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload").click()
+
+        time.sleep(5 + random.randint(1,3))  # wait for download
+
+        files = os.listdir(DOWNLOAD_DIR)
+        downloaded_file = max([os.path.join(DOWNLOAD_DIR,f) for f in files], key=os.path.getctime)
+        print(f"[INFO] Downloaded file: {downloaded_file}")
+
+        extracted_texts = extract_text_from_file(downloaded_file)
+
         data.append({
             "reference": ref,
             "objet": objet,
             "acheteur": buyer,
             "lieux_execution": lieux,
             "date_limite": deadline,
-            "first_button_url": first_button
+            "first_button_url": first_button,
+            "dce_text": extracted_texts
         })
-    except Exception as e:
-        print(f"Row error: {e}")
 
+    except Exception as e:
+        print(f"[ERROR] Row {idx} failed: {e}")
+
+# ------------------------
+# SAVE TO CSV
 df = pd.DataFrame(data)
-
-# ------------------------
-# DOWNLOAD & EXTRACT TEXT
-for idx, link in enumerate(df['first_button_url']):
-    driver.get(link)
-    time.sleep(2)
-    try:
-        download_link = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")
-        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", download_link)
-        time.sleep(random.uniform(0.5, 1.2))
-        download_link.click()
-        time.sleep(2)
-        
-        checkbox = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")
-        if not checkbox.is_selected():
-            checkbox.click()
-        valider_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_validateButton")
-        valider_button.click()
-        time.sleep(2)
-        
-        download_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")
-        download_button.click()
-        time.sleep(3)
-        
-        # Move downloaded file to temp folder
-        default_download_dir = Path.home() / "Downloads"
-        downloaded_file = max(default_download_dir.glob("*"), key=lambda f: f.stat().st_mtime)
-        shutil.move(str(downloaded_file), Path(temp_dir)/downloaded_file.name)
-        
-        # Process file
-        df.loc[idx, "extracted_text"] = process_download(Path(temp_dir)/downloaded_file.name)
-        
-    except Exception as e:
-        print(f"Download error: {e}")
-
-# ------------------------
-# SAVE OUTPUT
-df.to_csv("output.csv", index=False)
-print("Done! Extracted text saved to output.csv")
-
-# CLEANUP
-driver.quit()
-shutil.rmtree(temp_dir)
+csv_path = os.path.join(os.getcwd(), f"marchespublics_{yesterday.replace('/','-')}.csv")
+df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+print(f"[INFO] CSV saved at {csv_path}")
+print("[INFO] Done.")
