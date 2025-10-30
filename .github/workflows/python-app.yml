@@ -53,3 +53,17 @@ jobs:
         run: |
           mkdir -p $TMP_DOWNLOAD_DIR
           python main.py
+
+      # 7️⃣ Upload CSV output
+      - name: Upload CSV results
+        uses: actions/upload-artifact@v3
+        with:
+          name: marches_csv
+          path: marchespublics_*.csv
+
+      # 8️⃣ Upload screenshots for debugging
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v3
+        with:
+          name: screenshots
+          path: downloads/*.png
