@@ -9,7 +9,7 @@ from PIL import Image
 import pytesseract
 import docx
 import traceback
-import re # Import the regular expressions module
+import re  # Import the regular expressions module
 
 # Selenium Imports
 from selenium import webdriver
@@ -66,7 +66,7 @@ def extract_text_from_pdf(file_path):
         try:
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
-            for i, page_image in enumerate(pages): ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara") + "\n"
+            for page_image in pages: ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara") + "\n"
             return ocr_text.strip()
         except Exception: return ""
     return text.strip()
@@ -98,8 +98,8 @@ try:
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton").click()
     print("✅ Login successful.")
     print("🔍 Navigating to advanced search and setting filters...")
-    time.sleep(5)
     driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
+    time.sleep(5)
     date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     date_input.clear()
@@ -114,18 +114,25 @@ try:
     data = []
     for row in rows:
         try:
-            ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+            ref_text = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
             objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
             link = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
-            data.append({"reference": ref, "objet": objet, "download_page_url": link})
-        except Exception: continue
+
+            # **FIX**: Extract the number from the text to create a reliable ID
+            ref_match = re.search(r'\d+', ref_text)
+            if ref_match:
+                ref_id = ref_match.group(0)
+                data.append({"reference": ref_text, "ref_id": ref_id, "objet": objet, "download_page_url": link})
+        except Exception:
+            continue
     df = pd.DataFrame(data)
     excluded_words = ["construction", "installation", "recrutement", "travaux", "fourniture", "achat", "equipement", "maintenance", "works", "goods", "supply", "acquisition", "Recruitment", "nettoyage", "gardiennage"]
     df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
     print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
     # --- DOWNLOAD LOOP ---
-    links_to_process = df['download_page_url'].tolist()[:5] # Still testing with 5
+    # To run on all tenders, remove the '[:5]' slice
+    links_to_process = df['download_page_url'].tolist()[:5]
     print(f"\n📥 Starting download loop for the first {len(links_to_process)} links...")
     for i, link in enumerate(links_to_process):
         print(f"\n--- Processing link {i+1}/{len(links_to_process)} ---")
@@ -157,7 +164,6 @@ try:
     # --- PART 2: PROCESS DOWNLOADED FILES ---
     print("\n--- Starting Part 2: File Processing ---")
     print("Step 2.1: Unzipping all downloaded .zip files...")
-    # !!! BUG FIX: ADDED THE MISSING INNER 'for f in files:' LOOP !!!
     for root, _, files in os.walk(download_dir):
         for f in files:
             if f.lower().endswith(".zip"):
@@ -170,13 +176,13 @@ try:
         if not os.path.isdir(item_path): continue
         print(f"\nProcessing folder: {item_name}")
         merged_text = ""
-        # *** IMPROVEMENT: Find the reference number from the folder name ***
-        # The website usually names the folder like 'DCE_947754', we extract the number.
+
+        # **FIX**: Extract the number from the folder name for a reliable ID
         ref_match = re.search(r'\d+', item_name)
         if not ref_match:
             print(f"  - Warning: Could not find a reference number in folder name '{item_name}'. Skipping.")
             continue
-        reference_from_folder = f"Référence n° {ref_match.group(0)}"
+        ref_id = ref_match.group(0) # Get just the number
         
         for root, _, files in os.walk(item_path):
             for f in files:
@@ -189,22 +195,26 @@ try:
                 if text.strip(): merged_text += f"\n\n--- Content from: {f} ---\n{text}"
         
         if merged_text.strip():
-            # Store the text along with the reference number found in the folder name
-            tender_results.append({"reference": reference_from_folder, "merged_text": merged_text.strip()})
+            # Store the text along with the reliable ref_id
+            tender_results.append({"ref_id": ref_id, "merged_text": merged_text.strip()})
     
     df1 = pd.DataFrame(tender_results)
 
     # --- PART 3: MERGE AND SAVE RESULTS ---
     print("\n--- Starting Part 3: Merging data and saving to CSV ---")
     if not df.empty and not df1.empty:
-        # *** IMPROVEMENT: Merge DataFrames using the 'reference' number for a reliable match ***
-        merged_df = pd.merge(df, df1, on="reference", how="inner")
+        # **FIX**: Merge DataFrames using the reliable 'ref_id' number
+        merged_df = pd.merge(df, df1, on="ref_id", how="inner")
+        
+        # Clean up by removing the temporary ID column before saving
+        if 'ref_id' in merged_df.columns:
+            merged_df = merged_df.drop(columns=['ref_id'])
         
         output_csv_path = "tender_results.csv"
         merged_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
         print(f"✅ Data successfully merged and saved to {output_csv_path}")
     else:
-        print("⚠️ No data to process or merge. Saving initial scrape results only.")
+        print("⚠️ Scraped data or processed file data is empty. Cannot merge. Saving initial scrape results only.")
         df.to_csv("tender_results.csv", index=False, encoding='utf-8-sig')
 
 finally:
