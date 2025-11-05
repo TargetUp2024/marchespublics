@@ -2,16 +2,13 @@ name: Run Tender Bot
 
 on:
   workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
-  # schedule:
-  #   - cron: '0 8 * * *' # Example: Runs automatically at 8 AM UTC every day
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
     env:
-      # IMPORTANT: You must set this secret in your GitHub repository settings
-      # Go to Settings > Secrets and variables > Actions > New repository secret
+      # IMPORTANT: Set this secret in your repo: Settings > Secrets > Actions
       LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
 
     steps:
@@ -27,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.9" # You can use "3.9" for simplicity
+          python-version: "3.9"
 
       # ------------------------
       # 3. Cache dependencies for faster runs
@@ -39,16 +36,12 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
       # ------------------------
-      # 4. Install System Dependencies (Chrome, Tesseract OCR, Poppler)
+      # 4. Install System Dependencies
       # ------------------------
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          # Install Tesseract for OCR, including French and Arabic language packs
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara
-          # Install Poppler for PDF-to-image conversion
-          sudo apt-get install -y poppler-utils
-          # Install Chrome Browser and its driver
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara poppler-utils
           sudo apt-get install -y wget unzip
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
@@ -57,7 +50,6 @@ jobs:
           unzip chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-          # Clean up downloaded files
           rm -rf chromedriver-linux64 chromedriver-linux64.zip google-chrome-stable_current_amd64.deb
 
       # ------------------------
@@ -73,14 +65,14 @@ jobs:
       # ------------------------
       - name: Run Tender Bot
         env:
-          PYTHONUNBUFFERED: 1 # Ensures logs appear in real-time
+          PYTHONUNBUFFERED: 1
         run: python main.py
 
       # ------------------------
       # 7. Upload Results as Artifacts
       # ------------------------
       - name: Upload downloaded tender files
-        if: always() # Run this even if the script fails, to save partial results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tender-downloads
@@ -94,10 +86,10 @@ jobs:
           path: tender_results.csv
 
       # ------------------------
-      # 8. Upload Debugging Artifacts on Failure
+      # 8. Upload Debugging Artifacts
       # ------------------------
-      - name: Upload debug files on failure
-        if: failure() # IMPORTANT: Only runs if the 'Run Tender Bot' step fails
+      - name: Upload debug files
+        if: always() # <-- IMPORTANT: Uploads screenshots even if the script finishes
         uses: actions/upload-artifact@v4
         with:
           name: debug-files
