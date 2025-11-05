@@ -60,19 +60,25 @@ jobs:
       # Run Tender Bot
       # ------------------------
       - name: Run Tender Bot
+        run: xvfb-run -a python main.py
         env:
           PYTHONUNBUFFERED: 1
-        run: python main.py
 
       # ------------------------
-      # Upload downloaded files
+      # List downloaded files (debug)
+      # ------------------------
+      - name: List downloaded files
+        run: ls -R downloads/Mp
+
+      # ------------------------
+      # Upload downloaded files (ZIPs)
       # ------------------------
       - name: Upload downloaded files
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tender_downloads
-          path: downloads/
+          path: downloads/Mp
 
       # ------------------------
       # Upload login screenshots
@@ -83,3 +89,13 @@ jobs:
         with:
           name: login-screenshots
           path: login_debug_*.png
+
+      # ------------------------
+      # Upload final CSV
+      # ------------------------
+      - name: Upload CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tender_csv
+          path: tender_results.csv
