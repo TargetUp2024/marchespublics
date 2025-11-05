@@ -60,7 +60,7 @@ jobs:
       # Run Tender Bot
       # ------------------------
       - name: Run Tender Bot
-        run: xvfb-run -a python main.py
+        run: python main.py
         env:
           PYTHONUNBUFFERED: 1
 
