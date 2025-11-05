@@ -53,6 +53,7 @@ print("✅ WebDriver initialized successfully.")
 # HELPER FUNCTIONS (File Processing)
 # -----------------------------------------------------------------------------
 PDF_PAGE_LIMIT = 10
+
 def extract_text_from_pdf(file_path):
     text = ""
     try:
@@ -76,6 +77,32 @@ def extract_text_from_docx(file_path):
         doc = docx.Document(file_path)
         return "\n".join([p.text for p in doc.paragraphs])
     except Exception: return ""
+
+def extract_text_from_csv(file_path):
+    """Extract all text from a CSV file into a readable string."""
+    try:
+        # Use sep=None and engine='python' to auto-detect the separator (comma, semicolon, etc.)
+        df = pd.read_csv(file_path, on_bad_lines='skip', header=None, sep=None, engine='python')
+        # Convert the entire DataFrame to a clean string representation
+        return df.to_string(index=False, header=False)
+    except Exception as e:
+        print(f"  - Error reading CSV {file_path}: {e}")
+        return ""
+
+def extract_text_from_xlsx(file_path):
+    """Extract all text from all sheets in an XLSX or XLS file."""
+    try:
+        # Read all sheets from the Excel file
+        xls = pd.read_excel(file_path, sheet_name=None, header=None)
+        full_text = []
+        for sheet_name, df in xls.items():
+            # Add a separator for each sheet for clarity
+            full_text.append(f"--- Sheet: {sheet_name} ---")
+            full_text.append(df.to_string(index=False, header=False))
+        return "\n".join(full_text)
+    except Exception as e:
+        print(f"  - Error reading Excel file {file_path}: {e}")
+        return ""
 
 def extract_from_zip(file_path):
     try:
@@ -117,21 +144,17 @@ try:
             ref_text = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
             objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
             link = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
-
-            # **FIX**: Extract the number from the text to create a reliable ID
             ref_match = re.search(r'\d+', ref_text)
             if ref_match:
                 ref_id = ref_match.group(0)
                 data.append({"reference": ref_text, "ref_id": ref_id, "objet": objet, "download_page_url": link})
-        except Exception:
-            continue
+        except Exception: continue
     df = pd.DataFrame(data)
     excluded_words = ["construction", "installation", "recrutement", "travaux", "fourniture", "achat", "equipement", "maintenance", "works", "goods", "supply", "acquisition", "Recruitment", "nettoyage", "gardiennage"]
     df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
     print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
     # --- DOWNLOAD LOOP ---
-    # To run on all tenders, remove the '[:5]' slice
     links_to_process = df['download_page_url'].tolist()[:5]
     print(f"\n📥 Starting download loop for the first {len(links_to_process)} links...")
     for i, link in enumerate(links_to_process):
@@ -176,13 +199,11 @@ try:
         if not os.path.isdir(item_path): continue
         print(f"\nProcessing folder: {item_name}")
         merged_text = ""
-
-        # **FIX**: Extract the number from the folder name for a reliable ID
         ref_match = re.search(r'\d+', item_name)
         if not ref_match:
             print(f"  - Warning: Could not find a reference number in folder name '{item_name}'. Skipping.")
             continue
-        ref_id = ref_match.group(0) # Get just the number
+        ref_id = ref_match.group(0)
         
         for root, _, files in os.walk(item_path):
             for f in files:
@@ -190,12 +211,22 @@ try:
                 file_path = os.path.join(root, f)
                 ext = os.path.splitext(f)[1].lower()
                 text = ""
-                if ext == ".pdf": text = extract_text_from_pdf(file_path)
-                elif ext == ".docx": text = extract_text_from_docx(file_path)
-                if text.strip(): merged_text += f"\n\n--- Content from: {f} ---\n{text}"
-        
+                
+                # *** NEW: ADDED CSV AND EXCEL HANDLING ***
+                if ext == ".pdf":
+                    text = extract_text_from_pdf(file_path)
+                elif ext == ".docx":
+                    text = extract_text_from_docx(file_path)
+                elif ext == ".csv":
+                    text = extract_text_from_csv(file_path)
+                elif ext in [".xls", ".xlsx"]:
+                    text = extract_text_from_xlsx(file_path)
+                
+                if text and text.strip():
+                    # This formatting creates the readable structure in the final CSV cell
+                    merged_text += f"\n\n{'='*20}\n--- Content from file: {f} ---\n{'='*20}\n{text.strip()}"
+
         if merged_text.strip():
-            # Store the text along with the reliable ref_id
             tender_results.append({"ref_id": ref_id, "merged_text": merged_text.strip()})
     
     df1 = pd.DataFrame(tender_results)
@@ -203,10 +234,7 @@ try:
     # --- PART 3: MERGE AND SAVE RESULTS ---
     print("\n--- Starting Part 3: Merging data and saving to CSV ---")
     if not df.empty and not df1.empty:
-        # **FIX**: Merge DataFrames using the reliable 'ref_id' number
         merged_df = pd.merge(df, df1, on="ref_id", how="inner")
-        
-        # Clean up by removing the temporary ID column before saving
         if 'ref_id' in merged_df.columns:
             merged_df = merged_df.drop(columns=['ref_id'])
         
