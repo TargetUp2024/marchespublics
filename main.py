@@ -245,7 +245,8 @@ try:
         item_path = os.path.join(download_dir, item_name)
         if not os.path.isdir(item_path):
             continue
-        print(f"\nProcessing folder: {item_name}")
+        print(f"\n📂 Tender Folder: {item_name}")
+        file_counter = 1
         merged_text = ""
         ref_match = re.search(r'\d+', item_name)
         if not ref_match:
@@ -254,9 +255,8 @@ try:
 
         for root, _, files in os.walk(item_path):
             for f in files:
-                if 'cps' in f.lower():
-                    print(f"  -> Skipping file containing 'cps': {f}")
-                    continue
+                print(f"   ➜ Extracting file {file_counter}: {f}")
+                file_counter += 1
                 file_path = os.path.join(root, f)
                 ext = os.path.splitext(f)[1].lower()
                 text = ""
