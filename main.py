@@ -96,7 +96,7 @@ try:
     driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
     print("🔑 Logging in...")
     wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_login"))).send_keys("TARGETUPCONSULTING")
-    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys(os.getenv("LOGIN_PASSWORD"))
+    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys("pgwr00jPD@")
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton").click()
     print("✅ Login successful.")
     print("🔍 Navigating to advanced search and setting filters...")
