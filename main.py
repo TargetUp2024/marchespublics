@@ -128,8 +128,10 @@ df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False
 print(f"✅ {len(df)} valid results after filtering unwanted tenders.\n")
 
 # --- DOWNLOAD LOOP ---
+
+links = df['first_button_url'][:5]
 print("📥 Starting download loop...")
-for link in df['first_button_url']:
+for link in links:
     driver.get(link)
     time.sleep(3)
     try:
