@@ -259,6 +259,8 @@ try:
 finally:
     print("\nQuitting WebDriver and cleaning up...")
     json_data = merged_df.to_dict(orient="records")
+    print("Ready for N8N !!!!!!!")
+    time.sleep(5)
     
     # Your n8n webhook URL
     webhook_url = "https://targetup.app.n8n.cloud/webhook-test/78e3201b-36a3-4341-a067-e74f0693be6d"
