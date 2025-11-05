@@ -1,116 +1,161 @@
-import os, time, csv, zipfile, pandas as pd
-from pathlib import Path
+import os
+import time
+import random
+import zipfile
+import pandas as pd
+from datetime import datetime, timedelta
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from pdfminer.high_level import extract_text
-import docx
+from selenium.webdriver.support.ui import Select
+from selenium.common.exceptions import NoSuchElementException
 
-BASE_URL = "https://www.marchespublics.gov.ma/"
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+DOWNLOAD_DIR = "/home/runner/work/downloads"
+ZIP_DIR = os.path.join(DOWNLOAD_DIR, "zip_files")
+UNZIP_DIR = os.path.join(DOWNLOAD_DIR, "unzipped")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(ZIP_DIR, exist_ok=True)
+os.makedirs(UNZIP_DIR, exist_ok=True)
 
-DATA_DIR = Path("scraped_data")
-ZIP_DIR = DATA_DIR / "zip_files"
-EXTRACT_DIR = DATA_DIR / "unzipped"
-CSV_PATH = DATA_DIR / "tenders.csv"
+BASE_URL = "https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome"
+USERNAME = "TARGETUPCONSULTING"  # replace with your test login
+PASSWORD = "pgwr00jPD@"          # replace with your test password
 
-for folder in [DATA_DIR, ZIP_DIR, EXTRACT_DIR]:
-    folder.mkdir(parents=True, exist_ok=True)
-
-USERNAME = "TARGETUPCONSULTING"
-PASSWORD = "pgwr00jPD@"
-
+# -----------------------------
+# SELENIUM SETUP
+# -----------------------------
 options = Options()
 options.add_argument("--headless=new")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--window-size=1920,1080")
+prefs = {
+    "download.default_directory": ZIP_DIR,
+    "download.prompt_for_download": False,
+    "safebrowsing.enabled": True,
+}
+options.add_experimental_option("prefs", prefs)
 
-driver = webdriver.Chrome(options=options)
-wait = WebDriverWait(driver, 20)
+driver = webdriver.Chrome(service=Service("/usr/local/bin/chromedriver"), options=options)
+wait = WebDriverWait(driver, 60)
 
-def extract_file_text(file_path):
-    f = str(file_path)
-    if f.endswith(".pdf"):
-        try: return extract_text(f)
-        except: return "PDF error"
-    if f.endswith(".docx"):
-        try:
-            d = docx.Document(f)
-            return "\n".join([p.text for p in d.paragraphs])
-        except: return "DOCX error"
-    if f.endswith(".txt"):
-        return open(f, encoding="utf-8", errors="ignore").read()
-    return ""
+# -----------------------------
+# Helper: human typing
+# -----------------------------
+def human_type(element, text):
+    for char in text:
+        element.send_keys(char)
+        time.sleep(random.uniform(0.05, 0.2))
 
-print("Opening site...")
+# -----------------------------
+# LOGIN
+# -----------------------------
 driver.get(BASE_URL)
-wait.until(EC.element_to_be_clickable((By.ID, "login-button"))).click()
-wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(USERNAME)
-wait.until(EC.presence_of_element_located((By.ID, "password"))).send_keys(PASSWORD + Keys.RETURN)
+time.sleep(2)
 
+login_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_login")
+password_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password")
+ok_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton")
+
+human_type(login_input, USERNAME)
+time.sleep(random.uniform(0.5, 1))
+human_type(password_input, PASSWORD)
+time.sleep(random.uniform(0.5, 1))
+ok_button.click()
 time.sleep(3)
-print("Going to search page...")
+
+# -----------------------------
+# Navigate to advanced search
+# -----------------------------
 driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
+time.sleep(2)
 
+# Set date filter to yesterday
+date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
+yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+date_input.clear()
+for char in yesterday:
+    date_input.send_keys(char)
+    time.sleep(random.uniform(0.05, 0.2))
+
+time.sleep(1)
+search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
+driver.execute_script("arguments[0].scrollIntoView(true);", search_button)
+search_button.click()
 time.sleep(3)
-rows = driver.find_elements(By.CSS_SELECTOR, ".table > tbody > tr")
 
-records = []
+# -----------------------------
+# Set page size
+# -----------------------------
+dropdown = Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop"))
+dropdown.select_by_value("500")
+time.sleep(2)
+
+# -----------------------------
+# Scrape table rows
+# -----------------------------
+rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
+data = []
 
 for row in rows:
-    cols = row.find_elements(By.TAG_NAME, "td")
-    tender_ref = cols[0].text.strip()
-    tender_title = cols[1].text.strip()
-    
-    # click tender
-    link = cols[1].find_element(By.TAG_NAME, "a")
-    tender_url = link.get_attribute("href")
-    driver.execute_script("window.open(arguments[0]);", tender_url)
-    driver.switch_to.window(driver.window_handles[-1])
-
-    time.sleep(3)
-
-    text_accumulated = ""
-
     try:
-        download_btn = driver.find_element(By.XPATH, "//a[contains(@href, 'telechargerDce')]")
-        zip_url = download_btn.get_attribute("href")
+        ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+        objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
+        buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
+        lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
+        deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text
+        first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
 
-        driver.get(zip_url)
-        time.sleep(5)
-
-        # get latest downloaded ZIP from temp
-        zip_files = list(Path("/home/runner/").rglob("*.zip"))  # GitHub actions default download dir
-        if zip_files:
-            latest_zip = max(zip_files, key=os.path.getctime)
-            local_zip = ZIP_DIR / f"{tender_ref}.zip"
-            os.rename(latest_zip, local_zip)
-
-            with zipfile.ZipFile(local_zip, 'r') as z:
-                z.extractall(EXTRACT_DIR / tender_ref)
-
-            for f in (EXTRACT_DIR / tender_ref).rglob("*"):
-                if f.is_file():
-                    text_accumulated += "\n\n" + extract_file_text(f)
-
+        data.append({
+            "reference": ref,
+            "objet": objet,
+            "acheteur": buyer,
+            "lieux_execution": lieux,
+            "date_limite": deadline,
+            "first_button_url": first_button
+        })
     except Exception as e:
-        text_accumulated = "No documents or error"
+        print(f"Error extracting row: {e}")
 
-    records.append({
-        "Reference": tender_ref,
-        "Title": tender_title,
-        "Extracted Text": text_accumulated.strip()
-    })
+df = pd.DataFrame(data)
 
-    driver.close()
-    driver.switch_to.window(driver.window_handles[0])
+# -----------------------------
+# DOWNLOAD ZIPs
+# -----------------------------
+for link in df['first_button_url']:
+    try:
+        driver.get(link)
+        time.sleep(3)
+
+        download_link = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
+        driver.execute_script("arguments[0].scrollIntoView(true);", download_link)
+        download_link.click()
+        time.sleep(5)  # wait for download to complete
+    except Exception as e:
+        print(f"Download error for {link}: {e}")
 
 driver.quit()
 
-df = pd.DataFrame(records)
-df.to_csv(CSV_PATH, index=False, encoding="utf-8")
+# -----------------------------
+# UNZIP and prepare CSV
+# -----------------------------
+for f in os.listdir(ZIP_DIR):
+    if f.lower().endswith(".zip"):
+        zip_path = os.path.join(ZIP_DIR, f)
+        extract_to = os.path.join(UNZIP_DIR, os.path.splitext(f)[0])
+        os.makedirs(extract_to, exist_ok=True)
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_to)
 
-print("✅ DONE — CSV saved at:")
-print(CSV_PATH)
+# -----------------------------
+# Save CSV
+# -----------------------------
+csv_path = os.path.join(DOWNLOAD_DIR, "tenders.csv")
+df.to_csv(csv_path, index=False)
+print(f"✅ CSV saved at {csv_path}")
