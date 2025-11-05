@@ -1,8 +1,10 @@
-selenium==4.27.1
-pandas==2.2.3
 PyPDF2==3.0.1
-python-docx==1.2.0
 openpyxl==3.1.5
 chardet==3.0.4
 xlrd==1.2.0
 XlsxWriter==3.2.9
+
+selenium>=4.15.0
+pandas>=2.1.0
+pdfminer.six>=20221105
+python-docx>=0.8.11
