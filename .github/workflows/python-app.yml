@@ -29,7 +29,7 @@ jobs:
         mkdir -p scraped_data/unzipped
 
     - name: Run scraper
-      run: python scraper.py
+      run: python main.py
 
     - name: Upload results (CSV & extracted text)
       uses: actions/upload-artifact@v4
