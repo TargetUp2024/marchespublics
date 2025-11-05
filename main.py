@@ -101,6 +101,7 @@ try:
     print("✅ Login successful.")
     print("🔍 Navigating to advanced search and setting filters...")
     driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
+    time.sleep(5)
     date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     date_input.clear()
