@@ -67,7 +67,7 @@ def extract_text_from_pdf(file_path):
         doc.close()
     except Exception:
         return ""
-    if len(text.strip()) < 100:
+    if len(text.strip()) < 50:
         try:
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
@@ -197,7 +197,7 @@ try:
 
     # --- PART 2: DOWNLOADING ---
     links_to_process = df['download_page_url'].tolist() if not df.empty else []
-    links_to_process = links_to_process[:5]
+    ## links_to_process = links_to_process[:5]
     print(f"\n📥 Starting download loop for {len(links_to_process)} tenders...")
     for i, link in enumerate(links_to_process):
         print(f"\n--- Processing link {i+1}/{len(links_to_process)} ---")
