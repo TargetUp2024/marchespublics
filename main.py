@@ -131,11 +131,12 @@ try:
     
     print("🔑 Logging in...")
     wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_login"))).send_keys("TARGETUPCONSULTING")
-    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys(os.getenv("LOGIN_PASSWORD"))
+    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys("pgwr00jPD@")
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton").click()
     print("✅ Login successful.")
 
     print("🔍 Navigating to advanced search and setting filters...")
+    time.sleep(5)
     driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
     date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
@@ -258,4 +259,3 @@ finally:
         shutil.rmtree(download_dir)
         print("✅ Temporary download directory removed.")
     print("🎉 Script finished successfully.")
-Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
