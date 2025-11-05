@@ -2,42 +2,38 @@ name: Run Tender Bot
 
 on:
   workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+  # schedule:
+  #   - cron: '0 8 * * *' # Example: Runs automatically at 8 AM UTC every day
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------
       # 1. Checkout repository code
-      # ------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------
       # 2. Set up Python environment
-      # ------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.9"
 
-      # ------------------------
       # 3. Cache dependencies for faster runs
-      # ------------------------
       - name: Cache pip
         uses: actions/cache@v3
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
-      # ------------------------
       # 4. Install System Dependencies
-      # ------------------------
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara poppler-utils
+          # Install Tesseract OCR (with language packs), Poppler for PDFs, and Antiword for .doc files
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara tesseract-ocr-eng poppler-utils antiword
+          # Install Chrome Browser and its driver
           sudo apt-get install -y wget unzip
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
@@ -48,44 +44,21 @@ jobs:
           sudo chmod +x /usr/local/bin/chromedriver
           rm -rf chromedriver-linux64 chromedriver-linux64.zip google-chrome-stable_current_amd64.deb
 
-      # ------------------------
       # 5. Install Python dependencies
-      # ------------------------
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ------------------------
       # 6. Run the main Python script
-      # ------------------------
       - name: Run Tender Bot
         env:
-          PYTHONUNBUFFERED: 1
+          PYTHONUNBUFFERED: 1 # Ensures logs appear in real-time
         run: python main.py
 
-      # ------------------------
-      # 7. Upload Results as Artifacts
-      # ------------------------
-      - name: Upload downloaded tender files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tender-downloads
-          path: downloads/Mp/
-
-      - name: Upload final CSV
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tender-results-csv
-          path: tender_results.csv
-
-      # ------------------------
-      # 8. Upload Debugging Artifacts
-      # ------------------------
-      - name: Upload debug files
-        if: always() # <-- IMPORTANT: Uploads screenshots even if the script finishes
+      # 7. Upload Debugging Artifacts on Failure
+      - name: Upload debug files on failure
+        if: failure() # Only runs if the 'Run Tender Bot' step fails
         uses: actions/upload-artifact@v4
         with:
           name: debug-files
