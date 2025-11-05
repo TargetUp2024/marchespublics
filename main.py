@@ -9,6 +9,7 @@ from PIL import Image
 import pytesseract
 import docx
 import traceback
+import re # Import the regular expressions module
 
 # Selenium Imports
 from selenium import webdriver
@@ -49,11 +50,10 @@ wait = WebDriverWait(driver, 20)
 print("✅ WebDriver initialized successfully.")
 
 # -----------------------------------------------------------------------------
-# HELPER FUNCTIONS (File Processing - Unchanged)
+# HELPER FUNCTIONS (File Processing)
 # -----------------------------------------------------------------------------
 PDF_PAGE_LIMIT = 10
 def extract_text_from_pdf(file_path):
-    # (This function is unchanged)
     text = ""
     try:
         doc = fitz.open(file_path)
@@ -61,25 +61,23 @@ def extract_text_from_pdf(file_path):
             if i >= PDF_PAGE_LIMIT: break
             text += page.get_text("text") + "\n"
         doc.close()
-    except Exception as e: return ""
+    except Exception: return ""
     if len(text.strip()) < 100:
         try:
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
             for i, page_image in enumerate(pages): ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara") + "\n"
             return ocr_text.strip()
-        except Exception as e: return ""
+        except Exception: return ""
     return text.strip()
 
 def extract_text_from_docx(file_path):
-    # (This function is unchanged)
     try:
         doc = docx.Document(file_path)
         return "\n".join([p.text for p in doc.paragraphs])
     except Exception: return ""
 
 def extract_from_zip(file_path):
-    # (This function is unchanged)
     try:
         extract_to = os.path.splitext(file_path)[0]
         os.makedirs(extract_to, exist_ok=True)
@@ -101,7 +99,6 @@ try:
     print("✅ Login successful.")
     print("🔍 Navigating to advanced search and setting filters...")
     driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
-    time.sleep(5)
     date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     date_input.clear()
@@ -127,61 +124,44 @@ try:
     print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
     # --- DOWNLOAD LOOP ---
-    # !!! KEY CHANGE: ONLY PROCESS THE FIRST 5 LINKS FOR FASTER DEBUGGING !!!
-    links_to_process = df['download_page_url'].tolist()[:5]
+    links_to_process = df['download_page_url'].tolist()[:5] # Still testing with 5
     print(f"\n📥 Starting download loop for the first {len(links_to_process)} links...")
-    
     for i, link in enumerate(links_to_process):
         print(f"\n--- Processing link {i+1}/{len(links_to_process)} ---")
         try:
             driver.get(link)
-            
-            # More robust click method 1: Primary download button
             download_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", download_link)
-            time.sleep(0.5) # Small pause
+            time.sleep(0.5)
             download_link.click()
-            print("✅ Clicked primary download button.")
-
-            # More robust click method 2: Checkbox
             checkbox = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
             time.sleep(0.5)
             checkbox.click()
-            print("✅ Clicked terms and conditions checkbox.")
-
-            # More robust click method 3: Validate button
             valider_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
             valider_button.click()
-            print("✅ Clicked validation button.")
-
-            # More robust click method 4: Final download button
             final_download_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")))
             final_download_button.click()
             print(f"✅ Download initiated. Waiting 15 seconds for file to save...")
-            time.sleep(15) # Generous wait for download to complete
-
-        except Exception as e:
-            # --- CRUCIAL DEBUGGING STEP ---
+            time.sleep(15)
+        except Exception:
             error_filename = f"error_page_{i+1}.png"
             print(f"⚠️ An error occurred for link {link}. Saving screenshot to {error_filename}")
             driver.save_screenshot(error_filename)
-            with open(f"error_page_{i+1}.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-            
-            print("\n--- ERROR DETAILS ---")
+            with open(f"error_page_{i+1}.html", "w", encoding="utf-8") as f: f.write(driver.page_source)
             traceback.print_exc()
-            print("--- END ERROR DETAILS ---\n")
-            continue # Safely continue to the next link in the loop
-
+            continue
     print("\n🎯 Download loop finished.")
 
     # --- PART 2: PROCESS DOWNLOADED FILES ---
-    # (This section is unchanged, it will process whatever was successfully downloaded)
     print("\n--- Starting Part 2: File Processing ---")
     print("Step 2.1: Unzipping all downloaded .zip files...")
+    # !!! BUG FIX: ADDED THE MISSING INNER 'for f in files:' LOOP !!!
     for root, _, files in os.walk(download_dir):
-        if f.lower().endswith(".zip"): extract_from_zip(os.path.join(root, f))
+        for f in files:
+            if f.lower().endswith(".zip"):
+                extract_from_zip(os.path.join(root, f))
+    
     print("\nStep 2.2: Extracting text from all files...")
     tender_results = []
     for item_name in os.listdir(download_dir):
@@ -189,6 +169,14 @@ try:
         if not os.path.isdir(item_path): continue
         print(f"\nProcessing folder: {item_name}")
         merged_text = ""
+        # *** IMPROVEMENT: Find the reference number from the folder name ***
+        # The website usually names the folder like 'DCE_947754', we extract the number.
+        ref_match = re.search(r'\d+', item_name)
+        if not ref_match:
+            print(f"  - Warning: Could not find a reference number in folder name '{item_name}'. Skipping.")
+            continue
+        reference_from_folder = f"Référence n° {ref_match.group(0)}"
+        
         for root, _, files in os.walk(item_path):
             for f in files:
                 if 'cps' in f.lower(): continue
@@ -198,16 +186,19 @@ try:
                 if ext == ".pdf": text = extract_text_from_pdf(file_path)
                 elif ext == ".docx": text = extract_text_from_docx(file_path)
                 if text.strip(): merged_text += f"\n\n--- Content from: {f} ---\n{text}"
-        if merged_text.strip(): tender_results.append({"tender_folder": item_name, "merged_text": merged_text.strip()})
+        
+        if merged_text.strip():
+            # Store the text along with the reference number found in the folder name
+            tender_results.append({"reference": reference_from_folder, "merged_text": merged_text.strip()})
+    
     df1 = pd.DataFrame(tender_results)
 
     # --- PART 3: MERGE AND SAVE RESULTS ---
     print("\n--- Starting Part 3: Merging data and saving to CSV ---")
-    # (This section is unchanged)
     if not df.empty and not df1.empty:
-        df['id'] = range(len(df))
-        df1['id'] = range(len(df1))
-        merged_df = pd.merge(df, df1, on="id", how="inner").drop(columns=['id'])
+        # *** IMPROVEMENT: Merge DataFrames using the 'reference' number for a reliable match ***
+        merged_df = pd.merge(df, df1, on="reference", how="inner")
+        
         output_csv_path = "tender_results.csv"
         merged_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
         print(f"✅ Data successfully merged and saved to {output_csv_path}")
