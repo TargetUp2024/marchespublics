@@ -7,10 +7,6 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
 
-    env:
-      # IMPORTANT: Set this secret in your repo: Settings > Secrets > Actions
-      LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
-
     steps:
       # ------------------------
       # 1. Checkout repository code
