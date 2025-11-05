@@ -327,7 +327,7 @@ finally:
     print("Ready for N8N !!!!!!!")
     time.sleep(1)
 
-    webhook_url = "https://targetup.app.n8n.cloud/webhook-test/78e3201b-36a3-4341-a067-e74f0693be6d"
+    webhook_url = "https://targetup.app.n8n.cloud/webhook/78e3201b-36a3-4341-a067-e74f0693be6d"
     try:
         response = requests.post(webhook_url, json=json_data, timeout=20)
         if response.status_code == 200:
