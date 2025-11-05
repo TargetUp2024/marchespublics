@@ -1,20 +1,11 @@
-# requirements.txt
-
-# Existing PDF and data handling libraries
-PyPDF2==3.0.1
-openpyxl==3.1.5
-chardet==3.0.4
-xlrd==1.2.0
-XlsxWriter==3.2.9
+# Web Scraping
 selenium>=4.15.0
 pandas>=2.1.0
-pdfminer.six>=20221105
-python-docx>=0.8.11
 
-# Libraries for image processing and OCR
-Pillow>=10.0.0
+# File Processing
+PyMuPDF>=1.24.0 # Provides the 'fitz' module
 pdf2image>=1.16.3
+Pillow>=10.0.0
 pytesseract>=0.3.10
-
-# Add the missing dependency for 'fitz'
-PyMuPDF>=1.24.0
+python-docx>=0.8.11
+openpyxl>=3.1.0 # For reading .xlsx files with pandas
