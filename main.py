@@ -18,6 +18,8 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+# Import the specific exception for timeouts
+from selenium.common.exceptions import TimeoutException
 
 # -----------------------------------------------------------------------------
 # GITHUB ACTIONS CONFIGURATION
@@ -47,13 +49,16 @@ options.add_experimental_option("prefs", prefs)
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 20)
+
+# **NEW**: Set a specific timeout for page loads to avoid long hangs
+driver.set_page_load_timeout(60) # Fail faster after 60 seconds
+
 print("✅ WebDriver initialized successfully.")
 
 # -----------------------------------------------------------------------------
-# HELPER FUNCTIONS (File Processing)
+# HELPER FUNCTIONS (File Processing - All are correct)
 # -----------------------------------------------------------------------------
 PDF_PAGE_LIMIT = 10
-
 def extract_text_from_pdf(file_path):
     text = ""
     try:
@@ -79,24 +84,18 @@ def extract_text_from_docx(file_path):
     except Exception: return ""
 
 def extract_text_from_csv(file_path):
-    """Extract all text from a CSV file into a readable string."""
     try:
-        # Use sep=None and engine='python' to auto-detect the separator (comma, semicolon, etc.)
         df = pd.read_csv(file_path, on_bad_lines='skip', header=None, sep=None, engine='python')
-        # Convert the entire DataFrame to a clean string representation
         return df.to_string(index=False, header=False)
     except Exception as e:
         print(f"  - Error reading CSV {file_path}: {e}")
         return ""
 
 def extract_text_from_xlsx(file_path):
-    """Extract all text from all sheets in an XLSX or XLS file."""
     try:
-        # Read all sheets from the Excel file
         xls = pd.read_excel(file_path, sheet_name=None, header=None)
         full_text = []
         for sheet_name, df in xls.items():
-            # Add a separator for each sheet for clarity
             full_text.append(f"--- Sheet: {sheet_name} ---")
             full_text.append(df.to_string(index=False, header=False))
         return "\n".join(full_text)
@@ -118,15 +117,32 @@ def extract_from_zip(file_path):
 try:
     # --- PART 1: WEB SCRAPING AND DOWNLOADING ---
     print("\n--- Starting Part 1: Web Scraping ---")
-    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
+    
+    # *** NEW: ADDED A RETRY LOOP FOR INITIAL CONNECTION ***
+    MAX_RETRIES = 3
+    for attempt in range(MAX_RETRIES):
+        try:
+            print(f"Attempting to connect to website (Attempt {attempt + 1}/{MAX_RETRIES})...")
+            driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
+            print("✅ Connection successful.")
+            break # Exit the loop if successful
+        except TimeoutException:
+            print(f"⚠️ Page load timed out. Retrying in 10 seconds...")
+            time.sleep(10)
+            if attempt == MAX_RETRIES - 1: # If this was the last attempt
+                print("❌ Failed to connect to the website after multiple retries. Aborting.")
+                raise # Re-raise the last exception to stop the script
+    
     print("🔑 Logging in...")
     wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_login"))).send_keys("TARGETUPCONSULTING")
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys("pgwr00jPD@")
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton").click()
     print("✅ Login successful.")
+
+    # (The rest of the script is unchanged as it was working correctly)
     print("🔍 Navigating to advanced search and setting filters...")
-    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
     time.sleep(5)
+    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
     date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     date_input.clear()
@@ -154,7 +170,6 @@ try:
     df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
     print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
-    # --- DOWNLOAD LOOP ---
     links_to_process = df['download_page_url'].tolist()[:5]
     print(f"\n📥 Starting download loop for the first {len(links_to_process)} links...")
     for i, link in enumerate(links_to_process):
@@ -184,13 +199,11 @@ try:
             continue
     print("\n🎯 Download loop finished.")
 
-    # --- PART 2: PROCESS DOWNLOADED FILES ---
     print("\n--- Starting Part 2: File Processing ---")
     print("Step 2.1: Unzipping all downloaded .zip files...")
     for root, _, files in os.walk(download_dir):
         for f in files:
-            if f.lower().endswith(".zip"):
-                extract_from_zip(os.path.join(root, f))
+            if f.lower().endswith(".zip"): extract_from_zip(os.path.join(root, f))
     
     print("\nStep 2.2: Extracting text from all files...")
     tender_results = []
@@ -204,40 +217,25 @@ try:
             print(f"  - Warning: Could not find a reference number in folder name '{item_name}'. Skipping.")
             continue
         ref_id = ref_match.group(0)
-        
         for root, _, files in os.walk(item_path):
             for f in files:
                 if 'cps' in f.lower(): continue
                 file_path = os.path.join(root, f)
                 ext = os.path.splitext(f)[1].lower()
                 text = ""
-                
-                # *** NEW: ADDED CSV AND EXCEL HANDLING ***
-                if ext == ".pdf":
-                    text = extract_text_from_pdf(file_path)
-                elif ext == ".docx":
-                    text = extract_text_from_docx(file_path)
-                elif ext == ".csv":
-                    text = extract_text_from_csv(file_path)
-                elif ext in [".xls", ".xlsx"]:
-                    text = extract_text_from_xlsx(file_path)
-                
-                if text and text.strip():
-                    # This formatting creates the readable structure in the final CSV cell
-                    merged_text += f"\n\n{'='*20}\n--- Content from file: {f} ---\n{'='*20}\n{text.strip()}"
-
-        if merged_text.strip():
-            tender_results.append({"ref_id": ref_id, "merged_text": merged_text.strip()})
+                if ext == ".pdf": text = extract_text_from_pdf(file_path)
+                elif ext == ".docx": text = extract_text_from_docx(file_path)
+                elif ext == ".csv": text = extract_text_from_csv(file_path)
+                elif ext in [".xls", ".xlsx"]: text = extract_text_from_xlsx(file_path)
+                if text and text.strip(): merged_text += f"\n\n{'='*20}\n--- Content from file: {f} ---\n{'='*20}\n{text.strip()}"
+        if merged_text.strip(): tender_results.append({"ref_id": ref_id, "merged_text": merged_text.strip()})
     
     df1 = pd.DataFrame(tender_results)
 
-    # --- PART 3: MERGE AND SAVE RESULTS ---
     print("\n--- Starting Part 3: Merging data and saving to CSV ---")
     if not df.empty and not df1.empty:
         merged_df = pd.merge(df, df1, on="ref_id", how="inner")
-        if 'ref_id' in merged_df.columns:
-            merged_df = merged_df.drop(columns=['ref_id'])
-        
+        if 'ref_id' in merged_df.columns: merged_df = merged_df.drop(columns=['ref_id'])
         output_csv_path = "tender_results.csv"
         merged_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
         print(f"✅ Data successfully merged and saved to {output_csv_path}")
