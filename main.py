@@ -12,6 +12,7 @@ import traceback
 import re
 import shutil
 import subprocess
+import requests
 
 # Selenium Imports
 from selenium import webdriver
@@ -257,6 +258,20 @@ try:
 
 finally:
     print("\nQuitting WebDriver and cleaning up...")
+    json_data = merged_df.to_dict(orient="records")
+    
+    # Your n8n webhook URL
+    webhook_url = "https://targetup.app.n8n.cloud/webhook-test/78e3201b-36a3-4341-a067-e74f0693be6d"
+    
+    # Send POST request
+    response = requests.post(webhook_url, json=json_data)
+    
+    # Print status
+    if response.status_code == 200:
+        print("✅ Data sent successfully!")
+    else:
+        print(f"❌ Failed to send data. Status code: {response.status_code}")
+        
     driver.quit()
     # Clean up the temporary download directory
     if os.path.exists(download_dir):
