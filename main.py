@@ -173,7 +173,7 @@ try:
 
     # --- PART 2: DOWNLOADING ---
     links_to_process = df['download_page_url'].tolist()
-    links_to_process = links_to_process[:5]
+    # links_to_process = links_to_process[:5]
 
     print(f"\n📥 Starting download loop for {len(links_to_process)} tenders...")
     for i, link in enumerate(links_to_process):
