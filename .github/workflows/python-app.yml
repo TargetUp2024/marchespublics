@@ -62,7 +62,7 @@ jobs:
       - name: Run Tender Bot
         env:
           PYTHONUNBUFFERED: 1
-        run: python scripts/tender_bot.py
+        run: python main.py
 
       # ------------------------
       # Upload downloaded files
