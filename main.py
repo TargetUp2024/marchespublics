@@ -236,7 +236,9 @@ try:
 
     # --- PART 4: MERGE AND SAVE TO CSV ---
     print("\n--- Starting Part 4: Merging data and saving to CSV ---")
-    output_csv_path = "tender_results.csv"
+    workspace_path = os.getcwd()
+    output_csv_path = os.path.join(workspace_path, "tender_results.csv")
+    
     if not df.empty and not df1.empty:
         merged_df = pd.merge(df, df1, on="ref_id", how="inner")
         # Clean up columns before saving
