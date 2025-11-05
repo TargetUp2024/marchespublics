@@ -8,14 +8,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------
+      # Checkout repository
+      # ------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ------------------------
+      # Set up Python
+      # ------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.9.12"
 
+      # ------------------------
+      # Cache pip dependencies
+      # ------------------------
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+      # ------------------------
+      # Install Python dependencies
+      # ------------------------
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ------------------------
+      # Install Chrome and ChromeDriver
+      # ------------------------
       - name: Install Chrome and ChromeDriver
         run: |
           sudo apt-get update
@@ -27,25 +53,30 @@ jobs:
           unzip chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-          rm -rf chromedriver-linux64*
+          # Clean up
+          rm -rf chromedriver-linux64 chromedriver-linux64.zip google-chrome-stable_current_amd64.deb
 
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
+      # ------------------------
+      # Run Tender Bot
+      # ------------------------
       - name: Run Tender Bot
         env:
           PYTHONUNBUFFERED: 1
-        run: python scripts/main.py
+        run: python scripts/tender_bot.py
 
+      # ------------------------
+      # Upload downloaded files
+      # ------------------------
       - name: Upload downloaded files
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tender_downloads
-          path: /home/runner/work/downloads
+          path: downloads/
 
+      # ------------------------
+      # Upload login screenshots
+      # ------------------------
       - name: Upload login screenshots
         if: always()
         uses: actions/upload-artifact@v4
