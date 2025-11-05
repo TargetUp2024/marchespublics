@@ -1,29 +1,36 @@
 name: Run Tender Bot
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+  # schedule:
+  #   - cron: '0 8 * * *' # Example: Runs automatically at 8 AM UTC every day
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
+    env:
+      # IMPORTANT: You must set this secret in your GitHub repository settings
+      # Go to Settings > Secrets and variables > Actions > New repository secret
+      LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
+
     steps:
       # ------------------------
-      # Checkout repository
+      # 1. Checkout repository code
       # ------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ------------------------
-      # Set up Python
+      # 2. Set up Python environment
       # ------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.9.12"
+          python-version: "3.9" # You can use "3.9" for simplicity
 
       # ------------------------
-      # Cache pip dependencies
+      # 3. Cache dependencies for faster runs
       # ------------------------
       - name: Cache pip
         uses: actions/cache@v3
@@ -32,20 +39,17 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
       # ------------------------
-      # Install Python dependencies
+      # 4. Install System Dependencies (Chrome, Tesseract OCR, Poppler)
       # ------------------------
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      # ------------------------
-      # Install Chrome and ChromeDriver
-      # ------------------------
-      - name: Install Chrome and ChromeDriver
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip xvfb
+          # Install Tesseract for OCR, including French and Arabic language packs
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara
+          # Install Poppler for PDF-to-image conversion
+          sudo apt-get install -y poppler-utils
+          # Install Chrome Browser and its driver
+          sudo apt-get install -y wget unzip
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
           DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
@@ -53,49 +57,50 @@ jobs:
           unzip chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-          # Clean up
+          # Clean up downloaded files
           rm -rf chromedriver-linux64 chromedriver-linux64.zip google-chrome-stable_current_amd64.deb
 
       # ------------------------
-      # Run Tender Bot
+      # 5. Install Python dependencies
+      # ------------------------
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ------------------------
+      # 6. Run the main Python script
       # ------------------------
       - name: Run Tender Bot
-        run: python main.py
         env:
-          PYTHONUNBUFFERED: 1
+          PYTHONUNBUFFERED: 1 # Ensures logs appear in real-time
+        run: python main.py
 
       # ------------------------
-      # List downloaded files (debug)
+      # 7. Upload Results as Artifacts
       # ------------------------
-      - name: List downloaded files
-        run: ls -R downloads/Mp
+      - name: Upload downloaded tender files
+        if: always() # Run this even if the script fails, to save partial results
+        uses: actions/upload-artifact@v4
+        with:
+          name: tender-downloads
+          path: downloads/Mp/
 
-      # ------------------------
-      # Upload downloaded files (ZIPs)
-      # ------------------------
-      - name: Upload downloaded files
+      - name: Upload final CSV
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tender_downloads
-          path: downloads/Mp
-
-      # ------------------------
-      # Upload login screenshots
-      # ------------------------
-      - name: Upload login screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: login-screenshots
-          path: login_debug_*.png
-
-      # ------------------------
-      # Upload final CSV
-      # ------------------------
-      - name: Upload CSV
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tender_csv
+          name: tender-results-csv
           path: tender_results.csv
+
+      # ------------------------
+      # 8. Upload Debugging Artifacts on Failure
+      # ------------------------
+      - name: Upload debug files on failure
+        if: failure() # IMPORTANT: Only runs if the 'Run Tender Bot' step fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            error_page_*.png
+            error_page_*.html
