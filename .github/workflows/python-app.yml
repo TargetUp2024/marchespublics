@@ -1,6 +1,9 @@
 name: Run Tender Bot
 
 on:
+  # Schedule at 4:00 AM GMT+1 (3:00 AM UTC)
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -8,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # (Steps 1-5 for checkout, setup, and install are unchanged)
       - name: Checkout repository
         uses: actions/checkout@v4
         
@@ -27,7 +29,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara tesseract-ocr-eng poppler-utils antiword
-          # ... (rest of the install commands are the same)
           sudo apt-get install -y wget unzip
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
@@ -43,20 +44,16 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 6. Run the main Python script
       - name: Run Tender Bot
         env:
           PYTHONUNBUFFERED: 1
         run: python main.py
 
-      # --- NEW DEBUGGING STEP ---
-      # This step will show us exactly what files are in the directory.
       - name: Check for CSV file before upload
         run: |
           echo "Listing files in the current directory:"
           ls -l
 
-      # 7. Upload the final CSV result
       - name: Upload final CSV
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,7 +61,6 @@ jobs:
           name: tender-results-csv
           path: tender_results.csv
 
-      # 8. Upload Debugging Artifacts on Failure
       - name: Upload debug files on failure
         if: failure()
         uses: actions/upload-artifact@v4
