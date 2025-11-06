@@ -131,7 +131,8 @@ try:
     for attempt in range(MAX_RETRIES):
         try:
             print(f"Attempting to connect to website (Attempt {attempt + 1}/{MAX_RETRIES})...")
-            driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseHome")
+            URL1 = os.getenv("URL1")
+            driver.get(URL1)
             break
         except TimeoutException:
             if attempt == MAX_RETRIES - 1:
@@ -140,14 +141,17 @@ try:
             time.sleep(10)
 
     print("🔑 Logging in...")
-    wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_login"))).send_keys("TARGETUPCONSULTING")
-    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys("pgwr00jPD@")
+    USERNAME = os.getenv("USERNAME")
+    wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_login"))).send_keys(USERNAME)
+    PASSWORD = os.getenv("PASSWORD")
+    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys(PASSWORD)
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton").click()
     print("✅ Login successful.")
 
     print("🔍 Navigating to advanced search and setting filters...")
     time.sleep(5)
-    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
+    URL2 = os.getenv("URL2")
+    driver.get(URL2)
     date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     date_input.clear()
@@ -327,15 +331,27 @@ finally:
     print("Ready for N8N !!!!!!!")
     time.sleep(1)
 
-    webhook_url = "https://targetup.app.n8n.cloud/webhook/78e3201b-36a3-4341-a067-e74f0693be6d"
+
+    WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
     try:
-        response = requests.post(webhook_url, json=json_data, timeout=20)
-        if response.status_code == 200:
-            print("✅ Data sent successfully!")
-        else:
-            print(f"❌ Failed to send data. Status code: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Exception while sending webhook: {e}")
+        records = merged_df.to_dict(orient="records")
+    except Exception:
+        records = []
+    
+    print(f"📌 Ready to send {len(records)} rows to N8N...")
+    
+    for idx, row in enumerate(records, start=1):
+        payload = row  # send one row at a time
+        try:
+            response = requests.post(WEBHOOK_URL, json=payload, timeout=20)
+            if response.status_code == 200:
+                print(f"✅ Row {idx} sent successfully!")
+            else:
+                print(f"❌ Row {idx} failed. Status code: {response.status_code} | Response: {response.text}")
+        except Exception as e:
+            print(f"❌ Exception while sending row {idx}: {e}")
+        
+        time.sleep(1)  # optional delay between requests
 
     try:
         driver.quit()
