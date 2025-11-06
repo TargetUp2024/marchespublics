@@ -21,11 +21,7 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-
-# -------------------------------------------------------------------------
-# Safety: ensure merged_df exists even if try block fails early
-merged_df = pd.DataFrame()
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # -------------------------------------------------------------------------
 # GITHUB ACTIONS CONFIGURATION
@@ -55,6 +51,7 @@ print("✅ WebDriver initialized successfully.")
 
 # -------------------------------------------------------------------------
 # HELPER FUNCTIONS - TEXT EXTRACTION
+# -------------------------------------------------------------------------
 PDF_PAGE_LIMIT = 10
 
 def extract_text_from_pdf(file_path):
@@ -67,7 +64,7 @@ def extract_text_from_pdf(file_path):
         doc.close()
     except Exception:
         return ""
-    if len(text.strip()) < 50:
+    if len(text.strip()) < 50: # If text extraction is poor, try OCR
         try:
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
@@ -75,7 +72,7 @@ def extract_text_from_pdf(file_path):
                 ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara+eng") + "\n"
             return ocr_text.strip()
         except Exception:
-            return ""
+            return "" # Return empty if OCR also fails
     return text.strip()
 
 def extract_text_from_docx(file_path):
@@ -87,6 +84,7 @@ def extract_text_from_docx(file_path):
 
 def extract_text_from_doc(file_path):
     try:
+        # Use antiword for .doc files
         process = subprocess.Popen(['antiword', file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, _ = process.communicate()
         return stdout.decode('utf-8', errors='ignore')
@@ -113,30 +111,64 @@ def extract_text_from_xlsx(file_path):
         return ""
 
 def extract_from_zip(file_path):
+    """Extracts a zip file and returns the directory path."""
     try:
         extract_to = os.path.splitext(file_path)[0]
         os.makedirs(extract_to, exist_ok=True)
         with zipfile.ZipFile(file_path, 'r') as zip_ref:
             zip_ref.extractall(extract_to)
-        print(f"  - Successfully unzipped {os.path.basename(file_path)}")
+        print(f"  - Successfully unzipped to {extract_to}")
+        return extract_to
     except Exception as e:
         print(f"  - Failed to unzip {file_path}: {e}")
+        return None
+
+def clear_download_directory():
+    """Removes all files and folders in the download directory."""
+    for item_name in os.listdir(download_dir):
+        item_path = os.path.join(download_dir, item_name)
+        try:
+            if os.path.isfile(item_path) or os.path.islink(item_path):
+                os.unlink(item_path)
+            elif os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+        except Exception as e:
+            print(f"⚠️ Failed to delete {item_path}. Reason: {e}")
+
+def wait_for_download_complete(timeout=60):
+    """Waits for a download to complete by checking for .crdownload files."""
+    seconds = 0
+    while seconds < timeout:
+        crdownload_exists = any(f.endswith('.crdownload') for f in os.listdir(download_dir))
+        if not crdownload_exists:
+            # Find the first non-crdownload file and return its path
+            for f in os.listdir(download_dir):
+                if not f.endswith('.crdownload'):
+                    return os.path.join(download_dir, f)
+            # If directory is empty, the download might not have started
+        time.sleep(1)
+        seconds += 1
+    # If timeout is reached, return None
+    return None
 
 # -------------------------------------------------------------------------
 # MAIN SCRIPT LOGIC
+# -------------------------------------------------------------------------
+all_tender_data = [] # To store all processed data for final CSV logging
+
 try:
-    # --- PART 1: WEB SCRAPING ---
-    print("\n--- Starting Part 1: Web Scraping ---")
+    # --- PART 1: WEB SCRAPING SETUP ---
+    print("\n--- Starting Part 1: Web Scraping Setup ---")
     MAX_RETRIES = 3
     for attempt in range(MAX_RETRIES):
         try:
             print(f"Attempting to connect to website (Attempt {attempt + 1}/{MAX_RETRIES})...")
             URL1 = os.getenv("URL1")
             driver.get(URL1)
-            break
+            break # Exit loop if successful
         except TimeoutException:
             if attempt == MAX_RETRIES - 1:
-                raise
+                raise # Raise the final timeout error
             print("⚠️ Page load timed out. Retrying in 10 seconds...")
             time.sleep(10)
 
@@ -159,53 +191,53 @@ try:
     driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche").click()
     print("✅ Search executed.")
 
-    print("📊 Extracting data from results table...")
+    print("📊 Preparing to process results one by one...")
     wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
     Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
-    time.sleep(3)
+    time.sleep(3) # Wait for the page to reload with 500 results
     rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
-    data = []
-    for row in rows:
-        try:
-            ref_text = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
-            objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
-            buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
-            lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
-            deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
-            link = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
-            ref_match = re.search(r'\d+', ref_text)
-            if ref_match:
-                ref_id = ref_match.group(0)
-                data.append({
-                    "reference": ref_text,
-                    "ref_id": ref_id,
-                    "objet": objet,
-                    "acheteur": buyer,
-                    "lieux_execution": lieux,
-                    "date_limite": deadline,
-                    "download_page_url": link
-                })
-        except Exception:
-            continue
 
-    df = pd.DataFrame(data)
     excluded_words = [
         "construction", "installation", "recrutement", "travaux",
         "fourniture", "achat", "equipement", "maintenance",
         "works", "goods", "supply", "acquisition", "Recruitment",
         "nettoyage", "gardiennage"
     ]
-    if not df.empty:
-        df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
-    print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
-    # --- PART 2: DOWNLOADING ---
-    links_to_process = df['download_page_url'].tolist() if not df.empty else []
-    ## links_to_process = links_to_process[:5]
-    print(f"\n📥 Starting download loop for {len(links_to_process)} tenders...")
-    for i, link in enumerate(links_to_process):
-        print(f"\n--- Processing link {i+1}/{len(links_to_process)} ---")
+    print(f"Found {len(rows)} potential tenders. Starting individual processing loop...")
+
+    # --- PART 2: INDIVIDUAL TENDER PROCESSING LOOP ---
+    for i, row in enumerate(rows):
+        tender_data = {}
         try:
+            print(f"\n--- Processing Tender {i+1}/{len(rows)} ---")
+
+            # Step 2.1: Scrape basic data from the row
+            objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
+
+            # Filter out excluded words
+            if any(word in objet.lower() for word in excluded_words):
+                print(f"Skipping tender due to excluded keyword in 'objet': {objet[:50]}...")
+                continue
+
+            ref_text = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+            buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
+            lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
+            deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
+            link = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
+
+            tender_data = {
+                "reference": ref_text,
+                "objet": objet,
+                "acheteur": buyer,
+                "lieux_execution": lieux,
+                "date_limite": deadline
+            }
+            print(f"Scraped data for Ref: {ref_text}")
+
+            # Step 2.2: Download documents
+            print("  - Navigating to download page...")
+            clear_download_directory() # Ensure directory is clean before download
             driver.get(link)
             download_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", download_link)
@@ -222,137 +254,97 @@ try:
 
             final_download_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")))
             final_download_button.click()
+            print("  - Download initiated. Waiting for completion...")
 
-            print("✅ Download initiated. Waiting 15 seconds...")
-            time.sleep(15)
-        except Exception:
-            error_filename = f"error_page_{i+1}.png"
-            print(f"⚠️ An error occurred during download. Saving screenshot to {error_filename}")
-            driver.save_screenshot(error_filename)
-            with open(f"error_page_{i+1}.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
+            downloaded_file_path = wait_for_download_complete()
+            if not downloaded_file_path:
+                print("  - ⚠️ Download failed or timed out. Skipping file processing.")
+                tender_data["merged_text"] = "Error: Document download failed."
+            else:
+                print(f"  - ✅ Download complete: {os.path.basename(downloaded_file_path)}")
+
+                # Step 2.3: Process downloaded files
+                merged_text = ""
+                file_paths_to_process = []
+                
+                if downloaded_file_path.lower().endswith(".zip"):
+                    unzip_dir = extract_from_zip(downloaded_file_path)
+                    if unzip_dir:
+                        for root, _, files in os.walk(unzip_dir):
+                            for f in files:
+                                file_paths_to_process.append(os.path.join(root, f))
+                else:
+                    file_paths_to_process.append(downloaded_file_path)
+
+                print(f"  - Found {len(file_paths_to_process)} file(s) to process.")
+                for file_path in file_paths_to_process:
+                    filename = os.path.basename(file_path)
+                    print(f"    ➜ Extracting text from: {filename}")
+                    ext = os.path.splitext(filename)[1].lower()
+                    text = ""
+                    if ext == ".pdf": text = extract_text_from_pdf(file_path)
+                    elif ext == ".docx": text = extract_text_from_docx(file_path)
+                    elif ext == ".doc": text = extract_text_from_doc(file_path)
+                    elif ext == ".csv": text = extract_text_from_csv(file_path)
+                    elif ext in [".xls", ".xlsx"]: text = extract_text_from_xlsx(file_path)
+
+                    if text and text.strip():
+                        merged_text += f"\n\n{'='*20}\n--- Content from file: {filename} ---\n{'='*20}\n{text.strip()}"
+                
+                tender_data["merged_text"] = merged_text.strip() if merged_text else "No text could be extracted from documents."
+
+            # Step 2.4: Send data to n8n Webhook
+            WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
+            if WEBHOOK_URL:
+                print(f"  - Sending data for Ref: {ref_text} to n8n...")
+                try:
+                    response = requests.post(WEBHOOK_URL, json=tender_data, timeout=30)
+                    if response.status_code == 200:
+                        print(f"  - ✅ Successfully sent to n8n!")
+                    else:
+                        print(f"  - ❌ Failed to send to n8n. Status: {response.status_code} | Response: {response.text}")
+                except Exception as e:
+                    print(f"  - ❌ An exception occurred while sending to n8n: {e}")
+            else:
+                print("  - ⚠️ N8N_WEBHOOK_URL not set. Skipping sending.")
+            
+            # Append to the list for final CSV logging
+            all_tender_data.append(tender_data)
+
+        except (NoSuchElementException, TimeoutException) as e:
+            print(f"⚠️ A critical error occurred for tender {i+1} (Ref: {tender_data.get('reference', 'N/A')}). Skipping. Error: {e}")
+            traceback.print_exc()
+            # Navigate back to search results to prevent being stuck on an error page
+            driver.get(URL2) 
+            # Re-apply search to get back to the list
+            wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche"))).click()
+            wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
+            Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
+            time.sleep(3)
+            # Re-fetch rows to continue from the next item
+            rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
+            continue
+        except Exception as e:
+            print(f"An unexpected error occurred processing tender {i+1}: {e}")
             traceback.print_exc()
             continue
-    print("\n🎯 Download loop finished.")
-
-    # --- PART 3: FILE PROCESSING ---
-    print("\n--- Starting Part 3: File Processing ---")
-    print("Step 3.1: Unzipping all downloaded .zip files...")
-    for root, _, files in os.walk(download_dir):
-        for f in files:
-            if f.lower().endswith(".zip"):
-                extract_from_zip(os.path.join(root, f))
-
-    print("\nStep 3.2: Extracting text from all files...")
-    tender_results = []
-    for item_name in os.listdir(download_dir):
-        item_path = os.path.join(download_dir, item_name)
-        if not os.path.isdir(item_path):
-            continue
-        print(f"\n📂 Tender Folder: {item_name}")
-        file_counter = 1
-        merged_text = ""
-        ref_match = re.search(r'\d+', item_name)
-        if not ref_match:
-            continue
-        ref_id = ref_match.group(0)
-
-        for root, _, files in os.walk(item_path):
-            for f in files:
-                print(f"   ➜ Extracting file {file_counter}: {f}")
-                file_counter += 1
-                file_path = os.path.join(root, f)
-                ext = os.path.splitext(f)[1].lower()
-                text = ""
-                if ext == ".pdf":
-                    text = extract_text_from_pdf(file_path)
-                elif ext == ".docx":
-                    text = extract_text_from_docx(file_path)
-                elif ext == ".doc":
-                    text = extract_text_from_doc(file_path)
-                elif ext == ".csv":
-                    text = extract_text_from_csv(file_path)
-                elif ext in [".xls", ".xlsx"]:
-                    text = extract_text_from_xlsx(file_path)
-
-                if text and text.strip():
-                    merged_text += f"\n\n{'='*20}\n--- Content from file: {f} ---\n{'='*20}\n{text.strip()}"
-
-        if merged_text.strip():
-            tender_results.append({"ref_id": ref_id, "merged_text": merged_text.strip()})
-
-    # --- Build df1 & collapse multiple text rows per ref_id ---
-    df1 = pd.DataFrame(tender_results)
-    if not df1.empty:
-        df1['ref_id'] = df1['ref_id'].astype(str)
-        df1 = df1.groupby('ref_id', as_index=False).agg({
-            'merged_text': lambda texts: "\n\n".join(dict.fromkeys([t for t in texts if t and str(t).strip()]))
-        })
-
-    # --- PART 4: MERGE AND SAVE TO CSV ---
-    print("\n--- Starting Part 4: Merging data and saving to CSV ---")
-
-    # Ensure scrape results also unique per tender
-    if not df.empty:
-        df['ref_id'] = df['ref_id'].astype(str)
-        df = df.drop_duplicates(subset=['ref_id'])
-
-    workspace_path = os.getcwd()
-    output_csv_path = os.path.join(workspace_path, "tender_results.csv")
-
-    if not df.empty and not df1.empty:
-        merged_df = pd.merge(df, df1, on="ref_id", how="inner")
-        if 'ref_id' in merged_df.columns:
-            merged_df = merged_df.drop(columns=['ref_id'])
-        if 'download_page_url' in merged_df.columns:
-            merged_df = merged_df.drop(columns=['download_page_url'])
-        merged_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
-        print(f"✅ Data for {len(merged_df)} tenders successfully merged and saved to {output_csv_path}")
-
-    elif not df.empty:
-        # Keep scraped tenders (no attachments)
-        merged_df = df.copy()
-        merged_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
-        print(f"⚠️ No processed attachments. Saved {len(merged_df)} scraped tenders to {output_csv_path}")
-
-    else:
-        # No scraped data at all - create empty CSV
-        merged_df = pd.DataFrame()
-        merged_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
-        print("❌ No data was scraped. Created an empty CSV.")
+        finally:
+            # Clean up downloads for the next iteration
+            clear_download_directory()
 
 finally:
-    # Safe finally - merged_df is guaranteed to exist (could be empty)
-    print("\nQuitting WebDriver and cleaning up...")
-    try:
-        json_data = merged_df.to_dict(orient="records")
-    except Exception:
-        json_data = []
-    print("Ready for N8N !!!!!!!")
-    time.sleep(1)
-
-
-    WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
-    try:
-        records = merged_df.to_dict(orient="records")
-    except Exception:
-        records = []
+    print("\n--- Finalizing Script ---")
     
-    print(f"📌 Ready to send {len(records)} rows to N8N...")
-    
-    for idx, row in enumerate(records, start=1):
-        payload = row  # send one row at a time
-        try:
-            response = requests.post(WEBHOOK_URL, json=payload, timeout=20)
-            if response.status_code == 200:
-                print(f"✅ Row {idx} sent successfully!")
-            else:
-                print(f"❌ Row {idx} failed. Status code: {response.status_code} | Response: {response.text}")
-        except Exception as e:
-            print(f"❌ Exception while sending row {idx}: {e}")
+    # --- Create a final summary CSV file ---
+    if all_tender_data:
+        final_df = pd.DataFrame(all_tender_data)
+        output_csv_path = os.path.join(os.getcwd(), "tender_results_summary.csv")
+        final_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
+        print(f"✅ Summary for {len(final_df)} processed tenders saved to {output_csv_path}")
+    else:
+        print("ℹ️ No tenders were successfully processed to create a summary file.")
         
-        time.sleep(1)  # optional delay between requests
-
+    print("Quitting WebDriver...")
     try:
         driver.quit()
     except Exception:
@@ -360,9 +352,10 @@ finally:
 
     if os.path.exists(download_dir):
         try:
+            # Final cleanup of the main download directory
             shutil.rmtree(download_dir)
             print("✅ Temporary download directory removed.")
         except Exception as e:
-            print(f"⚠️ Could not remove download dir: {e}")
+            print(f"⚠️ Could not remove download dir on final cleanup: {e}")
 
     print("🎉 Script finished successfully.")
