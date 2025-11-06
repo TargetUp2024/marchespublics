@@ -179,14 +179,14 @@ try:
         # df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
         df_filtered = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)].reset_index(drop=True)
 
-    print(f"✅ Found {len(df)} relevant tenders after filtering.")
+    print(f"✅ Found {len(df_filtered)} relevant tenders after filtering.")
 
     # --- PART 2: PROCESS EACH TENDER SEQUENTIALLY FROM THE DATAFRAME ---
     print("\n--- Starting Part 2: Processing each tender individually ---\n")
     all_processed_tenders = []
     
     for index, row in df_filtered.iterrows():
-        print(f"--- Processing Tender {index + 1}/{len(df)} | Ref: {row['reference']} ---")
+        print(f"--- Processing Tender {index + 1}/{len(df_filtered)} | Ref: {row['reference']} ---")
         try:
             clear_download_directory()
             
