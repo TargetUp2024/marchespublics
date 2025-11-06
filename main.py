@@ -4,14 +4,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zipfile
 import fitz  # PyMuPDF
-from pdf2image import convert_from_path  # This library requires Poppler to be installed
+from pdf2image import convert_from_path
 from PIL import Image
-import pytesseract  # This library requires Tesseract to be installed
+import pytesseract
 import docx
 import traceback
 import re
 import shutil
-import subprocess # This requires 'antiword' for .doc files
+import subprocess
 import requests
 
 # Selenium Imports
@@ -43,7 +43,7 @@ options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-gpu")
 prefs = {"download.default_directory": download_dir, "download.prompt_for_download": False, "download.directory_upgrade": True}
 options.add_experimental_option("prefs", prefs)
-service = Service()
+service = Service() 
 driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 20)
 driver.set_page_load_timeout(60)
@@ -64,17 +64,15 @@ def extract_text_from_pdf(file_path):
     except Exception: return ""
     
     if len(text.strip()) < 50:
-        print("  - Short text from PDF, attempting OCR fallback...")
+        print("    - Short text from PDF, attempting OCR fallback...")
         try:
-            # This line requires the Poppler utility to be installed on the system
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
             for page_image in pages:
-                # This line requires the Tesseract engine to be installed on the system
                 ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara+eng") + "\n"
             return ocr_text.strip()
         except Exception as e:
-            print(f"  - ⚠️ OCR failed. Ensure Poppler & Tesseract are installed in the environment. Error: {e}")
+            print(f"    - ⚠️ OCR failed. Error: {e}")
             return ""
     return text.strip()
 
@@ -86,12 +84,11 @@ def extract_text_from_docx(file_path):
 
 def extract_text_from_doc(file_path):
     try:
-        # This line requires the 'antiword' utility to be installed on the system
         process = subprocess.Popen(['antiword', file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, _ = process.communicate()
         return stdout.decode('utf-8', errors='ignore')
     except Exception as e:
-        print(f"  - ⚠️ Antiword failed for .doc file. Ensure it is installed. Error: {e}")
+        print(f"    - ⚠️ Antiword failed for .doc file. Error: {e}")
         return ""
         
 def extract_from_zip(file_path):
@@ -112,15 +109,25 @@ def clear_download_directory():
             elif os.path.isdir(item_path): shutil.rmtree(item_path)
         except Exception as e: print(f"⚠️ Failed to delete {item_path}. Reason: {e}")
 
+# *** CHANGE 1: A MUCH MORE ROBUST FUNCTION TO WAIT FOR DOWNLOADS ***
 def wait_for_download_complete(timeout=90):
+    """
+    Waits for a download to complete. Ignores temporary .crdownload and .com.google.Chrome files.
+    """
     seconds = 0
     while seconds < timeout:
-        if any(f.endswith('.crdownload') for f in os.listdir(download_dir)):
-            time.sleep(1); seconds += 1; continue
-        downloaded_files = [f for f in os.listdir(download_dir) if not f.endswith('.crdownload')]
-        if downloaded_files: return os.path.join(download_dir, downloaded_files[0])
-        time.sleep(1); seconds += 1
-    return None
+        # Check for temporary files
+        is_downloading = any(f.endswith('.crdownload') or f.startswith('.com.google.Chrome') for f in os.listdir(download_dir))
+        
+        if not is_downloading:
+            # If no temp files, look for a completed file
+            downloaded_files = [f for f in os.listdir(download_dir) if not (f.endswith('.crdownload') or f.startswith('.com.google.Chrome'))]
+            if downloaded_files:
+                return os.path.join(download_dir, downloaded_files[0]) # Return the first completed file
+
+        time.sleep(1)
+        seconds += 1
+    return None # Return None if timeout is reached
 
 # -------------------------------------------------------------------------
 # MAIN SCRIPT LOGIC
@@ -206,7 +213,7 @@ try:
             # Step 2.2: EXTRACT TEXT FROM DOWNLOADED FILES
             merged_text = ""
             if not downloaded_file_path:
-                print("  - ⚠️ Download failed or timed out.")
+                print("  - ⚠️ Download failed or timed out. Skipping text extraction.")
                 merged_text = "Error: Document download failed."
             else:
                 print(f"  - ✅ Download complete: {os.path.basename(downloaded_file_path)}")
@@ -219,10 +226,14 @@ try:
                 else:
                     file_paths_to_process.append(downloaded_file_path)
                 
+                print(f"  - Found {len(file_paths_to_process)} file(s) to process.")
                 for file_path in file_paths_to_process:
                     filename = os.path.basename(file_path)
+                    # *** CHANGE 2: IMPROVED LOGGING TO SHOW FILENAME ***
+                    print(f"    -> Processing file: {filename}")
+
                     if "cps" in filename.lower():
-                        print(f"    - Skipping file containing 'CPS': {filename}")
+                        print(f"       - Skipping file containing 'CPS'.")
                         continue
                     
                     ext = os.path.splitext(filename)[1].lower()
@@ -232,7 +243,10 @@ try:
                     elif ext == ".doc": text = extract_text_from_doc(file_path)
                     
                     if text and text.strip():
+                        print(f"       - Extracted {len(text)} characters.")
                         merged_text += f"\n\n--- Content from file: {filename} ---\n{text.strip()}"
+                    else:
+                        print("       - No text extracted.")
                 
             # Step 2.3: PREPARE AND SEND DATA TO N8N
             tender_payload = row.to_dict()
@@ -245,13 +259,13 @@ try:
                 try:
                     response = requests.post(WEBHOOK_URL, json=tender_payload, timeout=30)
                     if response.status_code == 200: print(f"  - ✅ Successfully sent!")
-                    else: print(f"  - ❌ Failed to send. Status: {response.status_code}")
+                    else: print(f"  - ❌ Failed to send. Status: {response.status_code} (Check your n8n webhook URL and workflow status)")
                 except Exception as e: print(f"  - ❌ Exception occurred while sending to n8n: {e}")
             
             all_processed_tenders.append(tender_payload)
 
         except Exception as e:
-            print(f"  - ⚠️ An unexpected error occurred for this tender. Skipping. Error: {e}")
+            print(f"  - ⚠️ An unexpected error occurred for this tender. Skipping. Error: {type(e).__name__}")
             traceback.print_exc()
             continue
 
