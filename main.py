@@ -176,14 +176,16 @@ try:
     df = pd.DataFrame(data)
     excluded_words = ["construction", "installation", "recrutement", "travaux", "fourniture", "achat", "equipement", "maintenance", "works", "goods", "supply", "acquisition", "Recruitment", "nettoyage", "gardiennage"]
     if not df.empty:
-        df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
+        # df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
+        df_filtered = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)].reset_index(drop=True)
+
     print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
     # --- PART 2: PROCESS EACH TENDER SEQUENTIALLY FROM THE DATAFRAME ---
     print("\n--- Starting Part 2: Processing each tender individually ---\n")
     all_processed_tenders = []
     
-    for index, row in df.iterrows():
+    for index, row in df_filtered.iterrows():
         print(f"--- Processing Tender {index + 1}/{len(df)} | Ref: {row['reference']} ---")
         try:
             clear_download_directory()
