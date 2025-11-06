@@ -3,7 +3,7 @@ name: Run Tender Bot
 on:
   # Schedule at 6:00 AM GMT+1 (5:00 AM UTC)
   schedule:
-    - cron: "0 5 * * *"
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 jobs:
