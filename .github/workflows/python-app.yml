@@ -1,9 +1,9 @@
 name: Run Tender Bot
 
 on:
-  # Schedule at 4:00 AM GMT+1 (3:00 AM UTC)
+  # Schedule at 6:00 AM GMT+1 (5:00 AM UTC)
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "0 5 * * *"
   workflow_dispatch:
 
 jobs:
@@ -47,6 +47,11 @@ jobs:
       - name: Run Tender Bot
         env:
           PYTHONUNBUFFERED: 1
+          URL1: ${{ secrets.URL1 }}
+          URL2: ${{ secrets.URL2 }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
         run: python main.py
 
       - name: Check for CSV file before upload
