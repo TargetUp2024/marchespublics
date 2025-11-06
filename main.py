@@ -4,14 +4,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 import zipfile
 import fitz  # PyMuPDF
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path  # This library requires Poppler to be installed
 from PIL import Image
-import pytesseract
+import pytesseract  # This library requires Tesseract to be installed
 import docx
 import traceback
 import re
 import shutil
-import subprocess
+import subprocess # This requires 'antiword' for .doc files
 import requests
 
 # Selenium Imports
@@ -50,7 +50,7 @@ driver.set_page_load_timeout(60)
 print("✅ WebDriver initialized successfully.")
 
 # -------------------------------------------------------------------------
-# HELPER FUNCTIONS (Text Extraction, etc.)
+# HELPER FUNCTIONS
 # -------------------------------------------------------------------------
 PDF_PAGE_LIMIT = 10
 
@@ -62,13 +62,20 @@ def extract_text_from_pdf(file_path):
         for i in range(page_count): text += doc[i].get_text("text") + "\n"
         doc.close()
     except Exception: return ""
+    
     if len(text.strip()) < 50:
+        print("  - Short text from PDF, attempting OCR fallback...")
         try:
+            # This line requires the Poppler utility to be installed on the system
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
-            for page_image in pages: ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara+eng") + "\n"
+            for page_image in pages:
+                # This line requires the Tesseract engine to be installed on the system
+                ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara+eng") + "\n"
             return ocr_text.strip()
-        except Exception: return ""
+        except Exception as e:
+            print(f"  - ⚠️ OCR failed. Ensure Poppler & Tesseract are installed in the environment. Error: {e}")
+            return ""
     return text.strip()
 
 def extract_text_from_docx(file_path):
@@ -79,13 +86,14 @@ def extract_text_from_docx(file_path):
 
 def extract_text_from_doc(file_path):
     try:
+        # This line requires the 'antiword' utility to be installed on the system
         process = subprocess.Popen(['antiword', file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, _ = process.communicate()
         return stdout.decode('utf-8', errors='ignore')
     except Exception as e:
-        print(f"  - Error reading .doc file with antiword: {e}")
+        print(f"  - ⚠️ Antiword failed for .doc file. Ensure it is installed. Error: {e}")
         return ""
-
+        
 def extract_from_zip(file_path):
     try:
         extract_to = os.path.splitext(file_path)[0]
@@ -104,19 +112,14 @@ def clear_download_directory():
             elif os.path.isdir(item_path): shutil.rmtree(item_path)
         except Exception as e: print(f"⚠️ Failed to delete {item_path}. Reason: {e}")
 
-def wait_for_download_complete(timeout=60):
+def wait_for_download_complete(timeout=90):
     seconds = 0
     while seconds < timeout:
         if any(f.endswith('.crdownload') for f in os.listdir(download_dir)):
-            time.sleep(1)
-            seconds += 1
-            continue
-        # Check if there's any file that is not a .crdownload file
+            time.sleep(1); seconds += 1; continue
         downloaded_files = [f for f in os.listdir(download_dir) if not f.endswith('.crdownload')]
-        if downloaded_files:
-            return os.path.join(download_dir, downloaded_files[0])
-        time.sleep(1)
-        seconds += 1
+        if downloaded_files: return os.path.join(download_dir, downloaded_files[0])
+        time.sleep(1); seconds += 1
     return None
 
 # -------------------------------------------------------------------------
@@ -125,7 +128,7 @@ def wait_for_download_complete(timeout=60):
 df = pd.DataFrame()
 
 try:
-    # --- PART 1: SCRAPE ALL TENDER METADATA FIRST ---
+    # --- PART 1: SCRAPE ALL TENDER METADATA INTO A DATAFRAME ---
     print("\n--- Starting Part 1: Scraping all tender metadata ---")
     URL1 = os.getenv("URL1")
     driver.get(URL1)
@@ -169,7 +172,7 @@ try:
         df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
     print(f"✅ Found {len(df)} relevant tenders after filtering.")
 
-    # --- PART 2: PROCESS EACH TENDER FROM THE DATAFRAME ---
+    # --- PART 2: PROCESS EACH TENDER SEQUENTIALLY FROM THE DATAFRAME ---
     print("\n--- Starting Part 2: Processing each tender individually ---\n")
     all_processed_tenders = []
     
@@ -178,37 +181,29 @@ try:
         try:
             clear_download_directory()
             
-            # --- Step 2.1: ROBUST NAVIGATION AND DOWNLOAD ---
+            # Step 2.1: ROBUST NAVIGATION AND DOWNLOAD
             driver.get(row['download_page_url'])
             
-            print("  - Clicking initial download link...")
             dce_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dce_link)
-            time.sleep(1) # Pause for safety
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dce_link); time.sleep(1)
             dce_link.click()
 
-            print("  - Clicking 'accept conditions' checkbox...")
             checkbox = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
-            time.sleep(1)
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox); time.sleep(1)
             checkbox.click()
 
-            print("  - Clicking 'validate' button...")
             validate_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", validate_btn)
-            time.sleep(1)
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", validate_btn); time.sleep(1)
             validate_btn.click()
 
-            print("  - Clicking final download button...")
             final_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", final_btn)
-            time.sleep(1)
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", final_btn); time.sleep(1)
             final_btn.click()
             
-            print("  - Download command sent. Waiting for file to appear...")
-            downloaded_file_path = wait_for_download_complete(timeout=90) # Increased timeout
+            print("  - Download command sent. Waiting for file...")
+            downloaded_file_path = wait_for_download_complete()
             
-            # --- Step 2.2: EXTRACT TEXT FROM DOWNLOADED FILES ---
+            # Step 2.2: EXTRACT TEXT FROM DOWNLOADED FILES
             merged_text = ""
             if not downloaded_file_path:
                 print("  - ⚠️ Download failed or timed out.")
@@ -229,16 +224,17 @@ try:
                     if "cps" in filename.lower():
                         print(f"    - Skipping file containing 'CPS': {filename}")
                         continue
-                    print(f"    - Extracting text from: {filename}")
+                    
                     ext = os.path.splitext(filename)[1].lower()
                     text = ""
                     if ext == ".pdf": text = extract_text_from_pdf(file_path)
                     elif ext == ".docx": text = extract_text_from_docx(file_path)
                     elif ext == ".doc": text = extract_text_from_doc(file_path)
+                    
                     if text and text.strip():
                         merged_text += f"\n\n--- Content from file: {filename} ---\n{text.strip()}"
                 
-            # --- Step 2.3: PREPARE AND SEND DATA TO N8N ---
+            # Step 2.3: PREPARE AND SEND DATA TO N8N
             tender_payload = row.to_dict()
             tender_payload['merged_text'] = merged_text.strip() if merged_text else "No relevant text could be extracted."
             tender_payload.pop('download_page_url', None)
@@ -249,8 +245,9 @@ try:
                 try:
                     response = requests.post(WEBHOOK_URL, json=tender_payload, timeout=30)
                     if response.status_code == 200: print(f"  - ✅ Successfully sent!")
-                    else: print(f"  - ❌ Failed to send. Status: {response.status_code} | Response: {response.text}")
+                    else: print(f"  - ❌ Failed to send. Status: {response.status_code}")
                 except Exception as e: print(f"  - ❌ Exception occurred while sending to n8n: {e}")
+            
             all_processed_tenders.append(tender_payload)
 
         except Exception as e:
@@ -264,7 +261,7 @@ finally:
         summary_df = pd.DataFrame(all_processed_tenders)
         output_csv_path = os.path.join(os.getcwd(), "tender_results_summary.csv")
         summary_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
-        print(f"✅ Summary for {len(summary_df)} processed tenders saved to {output_csv_path}")
+        print(f"✅ Summary for {len(all_processed_tenders)} processed tenders saved to {output_csv_path}")
     else:
         print("ℹ️ No tenders were successfully processed.")
         
