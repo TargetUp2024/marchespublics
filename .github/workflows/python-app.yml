@@ -25,10 +25,13 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
-      - name: Install System Dependencies
+      - name: Install System Dependencies and Browser
         run: |
+          # Install all necessary tools for file processing
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara tesseract-ocr-eng poppler-utils antiword
+          
+          # Install Chrome browser and matching ChromeDriver
           sudo apt-get install -y wget unzip
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt install -y ./google-chrome-stable_current_amd64.deb
@@ -54,17 +57,14 @@ jobs:
           N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
         run: python main.py
 
-      - name: Check for CSV file before upload
-        run: |
-          echo "Listing files in the current directory:"
-          ls -l
-
-      - name: Upload final CSV
-        if: always()
+      - name: Upload summary CSV as artifact
+        if: always() # Always run this step to capture the output file
         uses: actions/upload-artifact@v4
         with:
-          name: tender-results-csv
-          path: tender_results.csv
+          name: tender-results-summary
+          # *** CRITICAL FIX: The python script saves a 'summary' file ***
+          path: tender_results_summary.csv
+          if-no-files-found: ignore # Don't fail if the script creates no file
 
       - name: Upload debug files on failure
         if: failure()
@@ -74,3 +74,4 @@ jobs:
           path: |
             error_page_*.png
             error_page_*.html
+          if-no-files-found: ignore
