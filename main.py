@@ -307,7 +307,7 @@ try:
 
             tender_payload = row.to_dict()
             tender_payload["merged_text"] = merged_text.strip() or "No relevant text could be extracted."
-            tender_payload.pop("download_page_url", None)
+            # tender_payload.pop("download_page_url", None)
 
             webhook = os.getenv("N8N_WEBHOOK_URL")
             if webhook:
