@@ -244,7 +244,7 @@ try:
         "Recruitment", "recruitment",
         "nettoyage", "cleaning",
         "gardiennage", "guarding",
-        "archives", "archives",
+        "archives", "archives", "archivage",
         "Equipment", "equipment",
         "ÉQUIPEMENT", "equipment",
         "équipement", "equipment",
