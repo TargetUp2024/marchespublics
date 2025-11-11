@@ -228,10 +228,30 @@ try:
 
     df = pd.DataFrame(data)
     excluded_words = [
-        "construction", "installation", "recrutement", "travaux", "fourniture",
-        "achat", "equipement", "maintenance", "works", "goods", "supply",
-        "acquisition", "Recruitment", "nettoyage", "gardiennage"
+        # French / English equivalents
+        "construction", "construction",
+        "installation", "installation",
+        "recrutement", "recruitment",
+        "travaux", "works",
+        "fourniture", "supply",
+        "achat", "purchase",
+        "equipement", "equipment",
+        "maintenance", "maintenance",
+        "works", "works",
+        "goods", "goods",
+        "supply", "supply",
+        "acquisition", "acquisition",
+        "Recruitment", "recruitment",
+        "nettoyage", "cleaning",
+        "gardiennage", "guarding",
+        "archives", "archives",
+        "Equipment", "equipment",
+        "ÉQUIPEMENT", "equipment",
+        "équipement", "equipment",
+        "construire", "build",
+        "recrute", "recruits"
     ]
+
 
     if not df.empty:
         df_filtered = df[~df["objet"].str.lower().str.contains("|".join(excluded_words), na=False)].reset_index(drop=True)
