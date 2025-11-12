@@ -6,6 +6,8 @@ import zipfile
 import subprocess
 import traceback
 import unicodedata
+import random
+import requests
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -16,38 +18,31 @@ from PIL import Image
 import pytesseract
 import docx
 
-# Selenium Imports
+# Selenium
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-# Requests for sending to n8n
-import requests
-
-# -------------------------------------------------------------------------
-# INITIAL SETUP
-# -------------------------------------------------------------------------
-print("🚀 Initializing configuration for GitHub Actions environment...")
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+print("🚀 Initializing configuration...")
 download_dir = os.path.join(os.getcwd(), "downloads_temp")
 os.makedirs(download_dir, exist_ok=True)
 
 options = webdriver.ChromeOptions()
-user_agent = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-)
-options.add_argument(f"user-agent={user_agent}")
-options.add_argument("--disable-blink-features=AutomationControlled")
-options.add_experimental_option("excludeSwitches", ["enable-automation"])
-options.add_experimental_option("useAutomationExtension", False)
 options.add_argument("--headless=new")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-gpu")
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_experimental_option("excludeSwitches", ["enable-automation"])
+options.add_experimental_option("useAutomationExtension", False)
+
 prefs = {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
@@ -59,15 +54,14 @@ service = Service()
 driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 20)
 driver.set_page_load_timeout(60)
-print("✅ WebDriver initialized successfully.")
+print("✅ WebDriver initialized.")
 
-# -------------------------------------------------------------------------
-# HELPER FUNCTIONS
-# -------------------------------------------------------------------------
 PDF_PAGE_LIMIT = 10
 
+# -----------------------------
+# HELPER FUNCTIONS
+# -----------------------------
 def clean_extracted_text(text):
-    """Cleans and prettifies extracted text."""
     text = unicodedata.normalize("NFKC", text)
     text = re.sub(r"\n{2,}", "\n", text)
     text = re.sub(r"[ \t]+", " ", text)
@@ -90,7 +84,6 @@ def clean_extracted_text(text):
 
 
 def extract_text_from_pdf(file_path):
-    """Extracts readable text from PDF with OCR fallback."""
     text = ""
     try:
         doc = fitz.open(file_path)
@@ -104,7 +97,6 @@ def extract_text_from_pdf(file_path):
         text = ""
     
     if len(text.strip()) < 50:
-        print("    - Short text from PDF, attempting OCR fallback...")
         try:
             pages = convert_from_path(file_path, last_page=PDF_PAGE_LIMIT)
             ocr_text = ""
@@ -112,7 +104,7 @@ def extract_text_from_pdf(file_path):
                 ocr_text += pytesseract.image_to_string(page_image, lang="fra+ara+eng") + "\n"
             text = ocr_text
         except Exception as e:
-            print(f"    - ⚠️ OCR failed. Error: {e}")
+            print(f"⚠️ OCR failed for {file_path}: {e}")
             text = ""
     return clean_extracted_text(text)
 
@@ -133,7 +125,7 @@ def extract_text_from_doc(file_path):
         text = stdout.decode("utf-8", errors="ignore")
         return clean_extracted_text(text)
     except Exception as e:
-        print(f"    - ⚠️ Antiword failed for .doc file. Error: {e}")
+        print(f"⚠️ Antiword failed for {file_path}: {e}")
         return ""
 
 
@@ -145,7 +137,7 @@ def extract_from_zip(file_path):
             zip_ref.extractall(extract_to)
         return extract_to
     except Exception as e:
-        print(f"  - Failed to unzip {file_path}: {e}")
+        print(f"⚠️ Failed to unzip {file_path}: {e}")
         return None
 
 
@@ -162,214 +154,212 @@ def clear_download_directory():
 
 
 def wait_for_download_complete(timeout=90):
-    """Waits for Chrome to finish downloading a file."""
     seconds = 0
     while seconds < timeout:
-        downloading = any(
-            f.endswith(".crdownload") or f.startswith(".com.google.Chrome")
-            for f in os.listdir(download_dir)
-        )
+        downloading = any(f.endswith(".crdownload") or f.startswith(".com.google.Chrome") for f in os.listdir(download_dir))
         if not downloading:
-            files = [
-                f for f in os.listdir(download_dir)
-                if not (f.endswith(".crdownload") or f.startswith(".com.google.Chrome"))
-            ]
+            files = [f for f in os.listdir(download_dir) if not f.endswith(".crdownload")]
             if files:
                 return os.path.join(download_dir, files[0])
         time.sleep(1)
         seconds += 1
     return None
 
-# -------------------------------------------------------------------------
-# MAIN SCRIPT LOGIC
-# -------------------------------------------------------------------------
+# -----------------------------
+# MAIN SCRIPT
+# -----------------------------
+all_processed_tenders = []
 df = pd.DataFrame()
 
 try:
-    print("\n--- Starting Part 1: Scraping tender metadata ---")
-    URL1 = os.getenv("URL1")
-    driver.get(URL1)
-    print("🔑 Logging in...")
-    wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_login"))).send_keys(os.getenv("USERNAME"))
-    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_password").send_keys(os.getenv("PASSWORD"))
-    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_authentificationButton").click()
-    print("✅ Login successful.")
+    print("\n--- Starting scraping ---")
+    driver.get("https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons")
+    time.sleep(2)
 
-    print("🔍 Navigating to search and applying filters...")
-    time.sleep(3)
-    URL2 = os.getenv("URL2")
-    driver.get(URL2)
-    date_input = wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")))
+    # Step 1: Open "Définir" popup
+    define_btn = wait.until(
+        EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_domaineActivite_linkDisplay"))
+    )
+    define_btn.click()
+
+    wait.until(lambda d: len(d.window_handles) > 1)
+    driver.switch_to.window(driver.window_handles[-1])
+
+    # Step 2: Select Services checkbox and validate
+    checkbox = wait.until(
+        EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_repeaterCategorie_ctl2_idCategorie"))
+    )
+    checkbox.click()
+    validate_btn = wait.until(
+        EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton"))
+    )
+    validate_btn.click()
+    driver.switch_to.window(driver.window_handles[0])
+    print("✅ Services selected.")
+
+    # Step 3: Set date filter to yesterday
+    date_input = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_dateMiseEnLigneCalculeStart")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     date_input.clear()
-    date_input.send_keys(yesterday)
-    driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche").click()
-    print("✅ Search executed.")
+    for char in yesterday:
+        date_input.send_keys(char)
+        time.sleep(random.uniform(0.08, 0.2))
+    time.sleep(random.uniform(0.5, 1))
+    search_button = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_AdvancedSearch_lancerRecherche")
+    driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", search_button)
+    time.sleep(random.uniform(0.5, 1.2))
+    search_button.click()
+    time.sleep(2)
 
-    print("📊 Extracting data from results table...")
+    # Step 4: Set results per page
     wait.until(EC.presence_of_element_located((By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")))
-    Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop")).select_by_value("500")
-    time.sleep(3)
+    dropdown = Select(driver.find_element(By.ID, "ctl0_CONTENU_PAGE_resultSearch_listePageSizeTop"))
+    dropdown.select_by_value("500")
+    time.sleep(2)
 
+    # Step 5: Scrape table rows
     rows = driver.find_elements(By.XPATH, '//table[@class="table-results"]/tbody/tr')
     data = []
     for row in rows:
         try:
+            ref = row.find_element(By.CSS_SELECTOR, '.col-450 .ref').text
+            objet = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", "")
+            buyer = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", "")
+            lieux = row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", ")
+            deadline = row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " ")
+            first_button = row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
             data.append({
-                "reference": row.find_element(By.CSS_SELECTOR, ".col-450 .ref").text,
-                "objet": row.find_element(By.XPATH, './/div[contains(@id,"panelBlocObjet")]').text.replace("Objet : ", ""),
-                "acheteur": row.find_element(By.XPATH, './/div[contains(@id,"panelBlocDenomination")]').text.replace("Acheteur public : ", ""),
-                "lieux_execution": row.find_element(By.XPATH, './/div[contains(@id,"panelBlocLieuxExec")]').text.replace("\n", ", "),
-                "date_limite": row.find_element(By.XPATH, './/td[@headers="cons_dateEnd"]').text.replace("\n", " "),
-                "download_page_url": row.find_element(By.XPATH, './/td[@class="actions"]//a[1]').get_attribute("href")
+                "reference": ref,
+                "objet": objet,
+                "acheteur": buyer,
+                "lieux_execution": lieux,
+                "date_limite": deadline,
+                "first_button_url": first_button
             })
-        except Exception:
-            continue
+        except Exception as e:
+            print(f"Error extracting row: {e}")
 
     df = pd.DataFrame(data)
+
+    # Step 6: Filter unwanted tenders
     excluded_words = [
-        # French / English equivalents
-        "construction", "construction",
-        "installation", "installation",
-        "recrutement", "recruitment",
-        "travaux", "works",
-        "fourniture", "supply",
-        "achat", "purchase",
-        "equipement", "equipment",
-        "maintenance", "maintenance",
-        "works", "works",
-        "goods", "goods",
-        "supply", "supply",
-        "acquisition", "acquisition",
-        "Recruitment", "recruitment",
-        "nettoyage", "cleaning",
-        "gardiennage", "guarding",
-        "archives", "archives", "archivage",
-        "Equipment", "equipment",
-        "ÉQUIPEMENT", "equipment",
-        "équipement", "equipment",
-        "construire", "build",
-        "recrute", "recruits"
+        "construction", "installation", "recrutement", "travaux",
+        "fourniture", "achat", "equipement", "maintenance",
+        "works", "goods", "supply", "acquisition", "Recruitment", "nettoyage", "recruiting"
     ]
+    df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
+    print(f"✅ {len(df)} valid tenders after filtering.\n")
 
+    # Step 7: Download loop
+    fields = {
+        "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_nom": "Lachhab",
+        "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_prenom": "Anas",
+        "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_email": "anas.lachhab@example.com"
+    }
 
-    if not df.empty:
-        df_filtered = df[~df["objet"].str.lower().str.contains("|".join(excluded_words), na=False)].reset_index(drop=True)
-    else:
-        df_filtered = df
-
-    print(f"✅ Found {len(df_filtered)} relevant tenders after filtering.")
-
-    print("\n--- Starting Part 2: Processing tenders ---\n")
-    all_processed_tenders = []
-
-    for index, row in df_filtered.iterrows():
-        print(f"--- Processing Tender {index + 1}/{len(df_filtered)} | Ref: {row['reference']} ---")
+    for idx, row in df.iterrows():
+        link = row['first_button_url']
+        driver.get(link)
+        time.sleep(3)
         try:
-            clear_download_directory()
-            driver.get(row["download_page_url"])
+            download_link = wait.until(
+                EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce"))
+            )
+            driver.execute_script("arguments[0].scrollIntoView(true);", download_link)
+            download_link.click()
 
-            dce_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dce_link)
-            time.sleep(1)
-            dce_link.click()
+            # Fill form
+            for fid, value in fields.items():
+                input_field = wait.until(EC.presence_of_element_located((By.ID, fid)))
+                input_field.clear()
+                input_field.send_keys(value)
 
-            checkbox = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")))
-            checkbox.click()
+            # Accept terms
+            checkbox = driver.find_element(By.ID, "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_accepterConditions")
+            if not checkbox.is_selected():
+                checkbox.click()
 
-            validate_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
-            validate_btn.click()
+            # Validate
+            valider_button = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_validateButton")))
+            valider_button.click()
 
-            final_btn = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload")))
-            final_btn.click()
+            # Final download
+            final_button = wait.until(
+                EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_EntrepriseDownloadDce_completeDownload"))
+            )
+            final_button.click()
+            print(f"✅ Download started for {link}")
 
-            print("  - Download command sent. Waiting for file...")
-            downloaded = wait_for_download_complete()
-
-            merged_text = ""
-            if not downloaded:
+            # Wait for file
+            downloaded_file = wait_for_download_complete()
+            if not downloaded_file:
                 print("  - ⚠️ Download failed or timed out.")
                 merged_text = "Error: download failed."
             else:
-                print(f"  - ✅ Download complete: {os.path.basename(downloaded)}")
                 file_paths = []
-                if downloaded.lower().endswith(".zip"):
-                    unzip_dir = extract_from_zip(downloaded)
+                if downloaded_file.lower().endswith(".zip"):
+                    unzip_dir = extract_from_zip(downloaded_file)
                     if unzip_dir:
                         for r, _, files in os.walk(unzip_dir):
                             for f in files:
                                 file_paths.append(os.path.join(r, f))
                 else:
-                    file_paths.append(downloaded)
+                    file_paths.append(downloaded_file)
 
-                print(f"  - Found {len(file_paths)} file(s) to process.")
+                merged_text = ""
                 for fpath in file_paths:
                     fname = os.path.basename(fpath)
-                    print(f"    -> Processing file: {fname}")
-
-                    if "cps" in fname.lower():
-                        print("       - Skipping CPS file.")
-                        continue
-
                     ext = os.path.splitext(fname)[1].lower()
-                    text = ""
+                    if "cps" in fname.lower():
+                        continue
                     if ext == ".pdf":
-                        text = extract_text_from_pdf(fpath)
+                        merged_text += extract_text_from_pdf(fpath)
                     elif ext == ".docx":
-                        text = extract_text_from_docx(fpath)
+                        merged_text += extract_text_from_docx(fpath)
                     elif ext == ".doc":
-                        text = extract_text_from_doc(fpath)
-
-                    if text:
-                        merged_text += f"\n\n====================\n--- Content from file: {fname} ---\n{text}\n====================\n"
-                    else:
-                        print("       - No text extracted.")
+                        merged_text += extract_text_from_doc(fpath)
 
             tender_payload = row.to_dict()
             tender_payload["merged_text"] = merged_text.strip() or "No relevant text could be extracted."
-            # tender_payload.pop("download_page_url", None)
 
+            # Send to n8n
             webhook = os.getenv("N8N_WEBHOOK_URL")
             if webhook:
-                print("  - Sending to n8n...")
                 try:
                     resp = requests.post(webhook, json=tender_payload, timeout=30)
                     if resp.status_code == 200:
-                        print("  - ✅ Successfully sent!")
-                        time.sleep(10)
+                        print("  - ✅ Sent to n8n successfully")
                     else:
-                        print(f"  - ❌ Failed to send (status {resp.status_code})")
+                        print(f"  - ❌ n8n error: {resp.status_code}")
                 except Exception as e:
-                    print(f"  - ❌ Error sending to n8n: {e}")
+                    print(f"  - ❌ n8n exception: {e}")
 
             all_processed_tenders.append(tender_payload)
 
         except Exception as e:
-            print(f"  - ⚠️ Error on this tender: {type(e).__name__}")
+            print(f"⚠️ Error processing tender {link}: {e}")
             traceback.print_exc()
             continue
 
 finally:
-    print("\n--- Finalizing Script ---")
-    if "all_processed_tenders" in locals() and all_processed_tenders:
+    # Save summary
+    if all_processed_tenders:
         df_out = pd.DataFrame(all_processed_tenders)
         out_path = os.path.join(os.getcwd(), "tender_results_summary.csv")
         df_out.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"✅ Saved summary for {len(df_out)} tenders to {out_path}")
+        print(f"✅ Saved {len(df_out)} tenders to {out_path}")
     else:
         print("ℹ️ No tenders processed.")
 
-    print("Quitting WebDriver...")
+    # Cleanup
     try:
         driver.quit()
     except Exception:
         pass
-
     if os.path.exists(download_dir):
         try:
             shutil.rmtree(download_dir)
-            print("✅ Temporary download directory removed.")
         except Exception as e:
             print(f"⚠️ Could not remove download dir: {e}")
 
-    print("🎉 Script finished successfully.")
+    print("🎉 Script finished.")
