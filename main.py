@@ -243,10 +243,10 @@ try:
 
     # Step 6: Filter unwanted tenders
     excluded_words = [
-        "construction", "installation", "recrutement", "travaux",
-        "fourniture", "achat", "equipement", "maintenance",
-        "works", "goods", "supply", "acquisition", "Recruitment", "nettoyage", "recruiting"
+        "construction", "installation", "travaux",
+        "fourniture", "achat", "equipement", "supply", "acquisition", "nettoyage"
     ]
+    
     df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
     print(f"✅ {len(df)} valid tenders after filtering.\n")
 
