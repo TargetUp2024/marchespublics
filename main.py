@@ -237,7 +237,7 @@ try:
             print(f"⚠️ Timeout loading {link}, retrying...")
             try:
                 driver.execute_script("window.stop();")
-                driver.get(link)
+                driver.execute_script("window.location.href = arguments[0];", link)
             except TimeoutException:
                 print(f"❌ Still timed out, skipping this tender.")
                 continue
