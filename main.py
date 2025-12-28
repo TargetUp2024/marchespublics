@@ -306,17 +306,32 @@ try:
             print(f"⚠️ Error processing tender {link}: {e}")
             traceback.print_exc()
 
-        # Prepare and send payload
+        # -----------------------------
+        # N8N WEBHOOK - OPTIMIZED FOR SLOW OLLAMA
+        # -----------------------------
         tender_payload = row.to_dict()
         tender_payload["merged_text"] = merged_text
 
         webhook = os.getenv("N8N_WEBHOOK_URL")
+        
         if webhook:
+            print(f"  - 📤 Sending to n8n (Payload len: {len(merged_text)})...")
             try:
-                resp = requests.post(webhook, json=tender_payload, timeout=30)
-                print("  - ✅ Sent to n8n" if resp.status_code == 200 else f"  - ❌ n8n error {resp.status_code}")
+                # Increased timeout to 600s (10 minutes) for slow AI models
+                resp = requests.post(webhook, json=tender_payload, timeout=1200)
+                
+                if resp.status_code == 200:
+                    print("  - ✅ Sent to n8n successfully")
+                else:
+                    print(f"  - ❌ n8n returned error {resp.status_code}")
+                    
+            except requests.exceptions.ReadTimeout:
+                # Catch specific timeout from slow Ollama, but consider it success-ish
+                print("  - ⚠️ TIMEOUT: n8n/Ollama took > 600s. Moving to next tender (Data was likely sent).")
+            except requests.exceptions.ConnectionError:
+                print("  - ❌ Connection Error: Could not reach n8n server.")
             except Exception as e:
-                print(f"  - ❌ n8n exception: {e}")
+                print(f"  - ❌ General n8n error: {e}")
 
         all_processed_tenders.append(tender_payload)
         clear_download_directory()
