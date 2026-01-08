@@ -137,17 +137,41 @@ def clear_download_directory():
             print(f"⚠️ Failed to delete {path}: {e}")
 
 
-def wait_for_download_complete(timeout=90):
-    seconds = 0
-    while seconds < timeout:
-        downloading = any(f.endswith(".crdownload") for f in os.listdir(download_dir))
-        if not downloading:
-            files = [f for f in os.listdir(download_dir) if not f.endswith(".crdownload")]
-            if files:
-                return os.path.join(download_dir, files[0])
+def wait_for_download_complete(timeout=120):
+    """
+    Waits for Chrome temp / incomplete files to finish downloading.
+    Returns the final downloaded file path.
+    """
+    elapsed = 0
+    stable_count = 0
+    last_size = -1
+
+    while elapsed < timeout:
+        files = [f for f in os.listdir(download_dir) 
+                 if not f.endswith(".crdownload") and not f.startswith(".com.google.Chrome.")]
+        if files:
+            # Take first candidate
+            file_path = os.path.join(download_dir, files[0])
+            size = os.path.getsize(file_path)
+            if size == last_size:
+                stable_count += 1
+            else:
+                stable_count = 0
+                last_size = size
+
+            # If size hasn’t changed for 3 consecutive checks (~3 sec)
+            if stable_count >= 3:
+                return file_path
+        else:
+            last_size = -1
+            stable_count = 0
+
         time.sleep(1)
-        seconds += 1
+        elapsed += 1
+
+    print("⚠️ Timeout waiting for download to finish.")
     return None
+
 
 # -----------------------------
 # MAIN SCRIPT
