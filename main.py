@@ -299,8 +299,10 @@ try:
                     elif ext == ".doc":
                         texts.append(extract_text_from_doc(fpath))
                 merged_text = "\n\n".join(t for t in texts if t.strip()) or "No relevant text extracted"
+                print(f"EXTRACTED {len(text)} chars from {fname}")
             else:
                 print("⚠️ Download failed or timed out.")
+                print(f"EXTRACTED {len(text)} chars from {fname}")
 
         except Exception as e:
             print(f"⚠️ Error processing tender {link}: {e}")
