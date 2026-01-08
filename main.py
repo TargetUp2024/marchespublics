@@ -290,16 +290,29 @@ try:
                 for fpath in file_paths:
                     fname = os.path.basename(fpath)
                     ext = os.path.splitext(fname)[1].lower()
+                
                     if "cps" in fname.lower():
+                        print(f"SKIPPED CPS: {fname}")
                         continue
+                
                     if ext == ".pdf":
-                        texts.append(extract_text_from_pdf(fpath))
+                        text = extract_text_from_pdf(fpath)
                     elif ext == ".docx":
-                        texts.append(extract_text_from_docx(fpath))
+                        text = extract_text_from_docx(fpath)
                     elif ext == ".doc":
-                        texts.append(extract_text_from_doc(fpath))
-                merged_text = "\n\n".join(t for t in texts if t.strip()) or "No relevant text extracted"
-                print(f"EXTRACTED {len(text)} chars from {fname}")
+                        text = extract_text_from_doc(fpath)
+                    else:
+                        print(f"SKIPPED UNSUPPORTED: {fname}")
+                        continue
+                
+                    # ✅ THIS IS THE CORRECT PLACE
+                    print(f"EXTRACTED {len(text)} chars from {fname}")
+                
+                    if text.strip():
+                        texts.append(text)
+                
+                merged_text = "\n\n".join(texts) or "No relevant text extracted"
+
             else:
                 print("⚠️ Download failed or timed out.")
                 print(f"EXTRACTED {len(text)} chars from {fname}")
