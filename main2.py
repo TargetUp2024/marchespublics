@@ -7,6 +7,7 @@ import subprocess
 import traceback
 import unicodedata
 import random
+import requests  # 👈 Added requests library
 from datetime import datetime
 
 # PDF / OCR / DOC
@@ -29,6 +30,11 @@ from selenium.common.exceptions import ElementClickInterceptedException
 # 👇 PUT THE SPECIFIC URL HERE 👇
 TARGET_URL = 'https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseDetailsConsultation&refConsultation=968924&orgAcronyme=g3h' 
 
+# 👇 PUT YOUR WEBHOOK URL HERE (or set it as an env variable)
+WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL1") 
+# If running locally without env vars, uncomment the line below and paste url:
+# WEBHOOK_URL = "https://your-n8n-instance.com/webhook/..."
+
 print("🚀 Initializing configuration...")
 download_dir = os.path.join(os.getcwd(), "downloads_temp")
 # Clean start
@@ -37,7 +43,7 @@ if os.path.exists(download_dir):
 os.makedirs(download_dir, exist_ok=True)
 
 options = webdriver.ChromeOptions()
-#options.add_argument("--headless=chrome") 
+options.add_argument("--headless=chrome") # Run headless on servers
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
@@ -133,6 +139,7 @@ def wait_for_download_complete(timeout=120):
 # MAIN LOGIC
 # -----------------------------
 final_output = ""
+extraction_status = "failed"
 
 try:
     print(f"\n🔗 Accessing URL: {TARGET_URL}")
@@ -177,7 +184,6 @@ try:
 
     except Exception as e:
         print(f"❌ Error during download interaction: {e}")
-        # Sometimes the URL provided is already the download link, check logic if needed
 
     # 2. Handle File Processing
     downloaded_file = wait_for_download_complete()
@@ -204,9 +210,6 @@ try:
             ext = os.path.splitext(fname)[1].lower()
             text_chunk = ""
 
-            # Filter out CPS usually (contains generic administrative clauses), optional
-            # if "cps" in fname.lower(): continue 
-
             print(f"   - Reading: {fname}")
             if ext == ".pdf":
                 text_chunk = extract_text_from_pdf(fpath)
@@ -219,6 +222,10 @@ try:
                 extracted_texts.append(f"--- START FILE: {fname} ---\n{text_chunk}\n--- END FILE ---\n")
 
         final_output = "\n".join(extracted_texts)
+        if final_output:
+            extraction_status = "success"
+        else:
+            final_output = "Files processed but no text extracted."
     else:
         final_output = "❌ No file downloaded or timeout occurred."
 
@@ -229,10 +236,32 @@ finally:
         shutil.rmtree(download_dir, ignore_errors=True)
 
 # -----------------------------
-# FINAL OUTPUT VARIABLE
+# FINAL OUTPUT & WEBHOOK
 # -----------------------------
 print("\n" + "="*40)
-print("FINAL EXTRACTED TEXT VARIABLE")
+print("SENDING TO WEBHOOK")
 print("="*40)
-# This is the variable containing the string
-print(final_output)
+
+if WEBHOOK_URL:
+    payload = {
+        "url": TARGET_URL,
+        "status": extraction_status,
+        "merged_text": final_output,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    print(f"📤 Sending data to: {WEBHOOK_URL} (Text len: {len(final_output)})")
+    
+    try:
+        response = requests.post(WEBHOOK_URL, json=payload, timeout=300)
+        if response.status_code == 200:
+            print("✅ SUCCESS: Data sent to Webhook.")
+        else:
+            print(f"⚠️ ERROR: Webhook returned status code {response.status_code}")
+            print(f"Response: {response.text}")
+    except Exception as e:
+        print(f"❌ CONNECTION ERROR: Could not send to Webhook. Details: {e}")
+else:
+    print("⚠️ SKIPPED: No WEBHOOK_URL configured.")
+    print("Dumping text locally for review:")
+    print(final_output[:2000] + "\n... (truncated)")
