@@ -58,12 +58,16 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Tender Bot
-        env:
-          PYTHONUNBUFFERED: 1
-          N8N_WEBHOOK_URL1: ${{ secrets.N8N_WEBHOOK_URL1 }}
-          SERVICE_ACCOUNT_FILE: ${{ secrets.SERVICE_ACCOUNT_FILE }}
+      - name: Write Service Account JSON
+        run: |
+          echo "${{ secrets.SERVICE_ACCOUNT_FILE }}" > service_account.json
+
+      - name: Run script
         run: python main2.py
+        env:
+          SERVICE_ACCOUNT_FILE: service_account.json
+          N8N_WEBHOOK_URL1: ${{ secrets.N8N_WEBHOOK_URL1 }}
+
 
       - name: Upload summary CSV as artifact
         if: always() # Always run this step to capture the output file
