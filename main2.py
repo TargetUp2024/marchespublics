@@ -33,12 +33,14 @@ from googleapiclient.http import MediaFileUpload
 TARGET_URL = 'https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseDetailsConsultation&refConsultation=968924&orgAcronyme=g3h' 
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL1") 
 
-# 👇 GOOGLE DRIVE CONFIGURATION
-SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
-GDRIVE_FOLDER_ID = '1l3fvuCwMpRXMdiJWTXo1-1WASH2NInuQ'
-FOLDER_NAME_VAR = "Dossier_Consultation_Ref_968924" 
-# You can also make it dynamic like: f"Consultation_{datetime.now().strftime('%Y%m%d')}"
+# 👇 DRIVE CONFIGURATION
+# Added default "service_account.json" so it works if env var is missed locally
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
 
+# 👇 FIXED: Renamed this to PARENT_FOLDER_ID to match the logic below
+PARENT_FOLDER_ID = '1l3fvuCwMpRXMdiJWTXo1-1WASH2NInuQ' 
+
+FOLDER_NAME_VAR = "Dossier_Consultation_Ref_968924" 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 print("🚀 Initializing configuration...")
@@ -248,7 +250,6 @@ try:
                     for f in files:
                         file_list_to_process.append(os.path.join(root, f))
             else:
-                # Failed to unzip, treat as single file
                 file_list_to_process.append(downloaded_file)
         else:
             file_list_to_process.append(downloaded_file)
@@ -258,11 +259,11 @@ try:
         drive_service = get_gdrive_service(SERVICE_ACCOUNT_FILE)
         current_folder_id = None
         
+        # 👇 CHECKING VARIABLES CORRECTLY HERE
         if drive_service and PARENT_FOLDER_ID:
-            # Create the specific folder
             created_id, created_link = create_drive_folder(drive_service, FOLDER_NAME_VAR, PARENT_FOLDER_ID)
             current_folder_id = created_id
-            folder_drive_link = created_link # Store link for webhook
+            folder_drive_link = created_link 
 
         # C. Loop: Upload & Extract Text
         extracted_texts = []
@@ -300,7 +301,6 @@ try:
 
 finally:
     driver.quit()
-    # Cleanup Temp Folders
     if os.path.exists(download_dir): shutil.rmtree(download_dir, ignore_errors=True)
     if os.path.exists(extract_dir): shutil.rmtree(extract_dir, ignore_errors=True)
 
@@ -316,7 +316,7 @@ if WEBHOOK_URL:
         "url": TARGET_URL,
         "status": extraction_status,
         "merged_text": final_output,
-        "drive_folder_link": folder_drive_link, # 👈 Link to the Folder containing all files
+        "drive_folder_link": folder_drive_link,
         "timestamp": datetime.now().isoformat()
     }
     
