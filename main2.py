@@ -6,6 +6,7 @@ import subprocess
 import unicodedata
 import requests
 from datetime import datetime
+import re
 
 # PDF / OCR / DOC
 import fitz  # PyMuPDF
