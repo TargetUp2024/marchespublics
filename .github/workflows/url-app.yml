@@ -62,6 +62,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
           N8N_WEBHOOK_URL1: ${{ secrets.N8N_WEBHOOK_URL1 }}
+          SERVICE_ACCOUNT_FILE: ${{ secrets.SERVICE_ACCOUNT_FILE }}
         run: python main2.py
 
       - name: Upload summary CSV as artifact
