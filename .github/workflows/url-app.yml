@@ -58,17 +58,20 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Write Service Account JSON
-        run: |
-          echo "${{ secrets.SERVICE_ACCOUNT_FILE_B64 }}" | base64 --decode > service_account.json
-
-
-
-      - name: Run script
-        run: python main2.py
+      - name: Create Service Account JSON
         env:
-          SERVICE_ACCOUNT_FILE: service_account.json
+          # Load the raw secret into an environment variable
+          GOOGLE_CREDENTIALS: ${{ secrets.SERVICE_ACCOUNT_FILE }}
+        run: |
+          # Use Python to write the file safely (avoids echo/printf errors)
+          python -c "import os; f = open('service_account.json', 'w'); f.write(os.environ['GOOGLE_CREDENTIALS']); f.close()"
+
+
+      - name: Run Extraction Script
+        env:
           N8N_WEBHOOK_URL1: ${{ secrets.N8N_WEBHOOK_URL1 }}
+          SERVICE_ACCOUNT_FILE: "service_account.json" 
+        run: python main2.py
 
 
       - name: Upload summary CSV as artifact
