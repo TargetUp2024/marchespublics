@@ -61,7 +61,7 @@ jobs:
       - name: Run Tender Bot
         env:
           PYTHONUNBUFFERED: 1
-          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL1 }}
+          N8N_WEBHOOK_URL1: ${{ secrets.N8N_WEBHOOK_URL1 }}
         run: python main2.py
 
       - name: Upload summary CSV as artifact
