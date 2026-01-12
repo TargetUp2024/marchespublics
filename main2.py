@@ -1,6 +1,5 @@
 import os
 import time
-import re
 import shutil
 import zipfile
 import subprocess
@@ -21,25 +20,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 
-# Google Drive
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
 TARGET_URL = 'https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseDetailsConsultation&refConsultation=968924&orgAcronyme=g3h' 
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL1") 
 
-# Google Shared Drive & Service Account
-SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
-SHARED_DRIVE_ID = "1l3fvuCwMpRXMdiJWTXo1-1WASH2NInuQ"  # Your Shared Drive ID
-FOLDER_NAME_VAR = "Dossier_Consultation_Ref_968924" 
-SCOPES = ['https://www.googleapis.com/auth/drive']
-
 print("🚀 Initializing configuration...")
-
 download_dir = os.path.join(os.getcwd(), "downloads_temp")
 extract_dir = os.path.join(os.getcwd(), "extracted_temp")
 
@@ -49,9 +36,6 @@ for d in [download_dir, extract_dir]:
         shutil.rmtree(d)
     os.makedirs(d, exist_ok=True)
 
-# -----------------------------
-# SELENIUM SETUP
-# -----------------------------
 options = webdriver.ChromeOptions()
 options.add_argument("--headless=chrome") 
 options.add_argument("--no-sandbox")
@@ -72,66 +56,10 @@ driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 30)
 print("✅ WebDriver initialized.")
 
-PDF_PAGE_LIMIT = 15
+PDF_PAGE_LIMIT = 15 
 
 # -----------------------------
-# GOOGLE DRIVE FUNCTIONS
-# -----------------------------
-def get_gdrive_service(sa_key_path):
-    """Authenticate and return Google Drive service."""
-    if not os.path.exists(sa_key_path):
-        print(f"❌ Service Account JSON not found at: {sa_key_path}")
-        return None
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            sa_key_path, scopes=SCOPES
-        )
-        return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        print(f"❌ Auth Failed: {e}")
-        return None
-
-def create_drive_folder(service, folder_name, parent_id):
-    """Create a folder inside Shared Drive or another folder."""
-    try:
-        file_metadata = {
-            'name': folder_name,
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [parent_id]
-        }
-        folder = service.files().create(
-            body=file_metadata,
-            fields='id, webViewLink',
-            supportsAllDrives=True
-        ).execute()
-        print(f"📁 Created Drive Folder: {folder_name} (ID: {folder.get('id')})")
-        return folder.get('id'), folder.get('webViewLink')
-    except Exception as e:
-        print(f"❌ Failed to create folder: {e}")
-        return None, None
-
-def upload_file_to_drive(service, file_path, folder_id):
-    """Upload a file to a specific folder in Shared Drive."""
-    try:
-        file_metadata = {
-            'name': os.path.basename(file_path),
-            'parents': [folder_id]
-        }
-        media = MediaFileUpload(file_path, resumable=True)
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        print(f"   ☁️ Uploaded: {os.path.basename(file_path)}")
-        return file.get('id')
-    except Exception as e:
-        print(f"   ⚠️ Upload Failed for {file_path}: {e}")
-        return None
-
-# -----------------------------
-# TEXT EXTRACTION FUNCTIONS
+# TEXT EXTRACTION HELPER FUNCTIONS
 # -----------------------------
 def clean_extracted_text(text):
     text = unicodedata.normalize("NFKC", text)
@@ -200,20 +128,20 @@ def wait_for_download_complete(timeout=120):
 # -----------------------------
 final_output = ""
 extraction_status = "failed"
-folder_drive_link = None
+downloaded_file_path = None
 
 try:
     print(f"\n🔗 Accessing URL: {TARGET_URL}")
     driver.get(TARGET_URL)
     time.sleep(2)
 
-    # Download interaction
+    # 1. Download Interaction
     try:
         download_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
         driver.execute_script("arguments[0].scrollIntoView(true);", download_link)
         download_link.click()
         
-        # Fill form
+        # Fill Form
         fields = {
             "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_nom": "Consultant",
             "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_prenom": "External",
@@ -237,46 +165,34 @@ try:
     except Exception as e:
         print(f"❌ Error during download interaction: {e}")
 
-    # Process file
-    downloaded_file = wait_for_download_complete()
+    # 2. Process File
+    downloaded_file_path = wait_for_download_complete()
     
-    if downloaded_file:
-        print(f"✅ File downloaded: {os.path.basename(downloaded_file)}")
-        file_list_to_process = []
+    if downloaded_file_path:
+        print(f"✅ File downloaded: {os.path.basename(downloaded_file_path)}")
+        
+        # We process files locally for TEXT extraction, but we upload the Original Zip later
+        file_list_to_read_text = []
 
-        # Unzip if needed
-        if downloaded_file.lower().endswith(".zip"):
-            print("📦 Unzipping file locally...")
-            if extract_zip(downloaded_file, extract_dir):
+        # A. Unzip Locally (Only for extracting text)
+        if downloaded_file_path.lower().endswith(".zip"):
+            print("📦 Unzipping file locally for text extraction...")
+            if extract_zip(downloaded_file_path, extract_dir):
                 for root, dirs, files in os.walk(extract_dir):
                     for f in files:
-                        file_list_to_process.append(os.path.join(root, f))
+                        file_list_to_read_text.append(os.path.join(root, f))
             else:
-                file_list_to_process.append(downloaded_file)
+                file_list_to_read_text.append(downloaded_file_path)
         else:
-            file_list_to_process.append(downloaded_file)
+            file_list_to_read_text.append(downloaded_file_path)
 
-        # Setup Drive
-        print(f"🚀 Preparing to upload {len(file_list_to_process)} files to Google Drive...")
-        drive_service = get_gdrive_service(SERVICE_ACCOUNT_FILE)
-        current_folder_id = None
-
-        if drive_service and SHARED_DRIVE_ID:
-            current_folder_id, folder_drive_link = create_drive_folder(
-                drive_service, FOLDER_NAME_VAR, SHARED_DRIVE_ID
-            )
-
-        # Upload & extract text
+        # B. Extract Text
         extracted_texts = []
-        for fpath in file_list_to_process:
+        for fpath in file_list_to_read_text:
             fname = os.path.basename(fpath)
-
-            if drive_service and current_folder_id:
-                upload_file_to_drive(drive_service, fpath, current_folder_id)
-
             ext = os.path.splitext(fname)[1].lower()
             text_chunk = ""
-            print(f"   📖 Reading text from: {fname}")
+            
             if ext == ".pdf":
                 text_chunk = extract_text_from_pdf(fpath)
             elif ext == ".docx":
@@ -291,42 +207,67 @@ try:
         if final_output:
             extraction_status = "success"
         else:
-            final_output = "Files processed (and uploaded) but no text extracted."
+            final_output = "Files processed but no text extracted."
 
     else:
         final_output = "❌ No file downloaded or timeout occurred."
 
 finally:
     driver.quit()
-    if os.path.exists(download_dir): shutil.rmtree(download_dir, ignore_errors=True)
-    if os.path.exists(extract_dir): shutil.rmtree(extract_dir, ignore_errors=True)
+    # We do NOT delete download_dir yet because we need to send the file
 
 # -----------------------------
-# SEND TO WEBHOOK
+# FINAL OUTPUT & WEBHOOK
 # -----------------------------
 print("\n" + "="*40)
 print("SENDING TO WEBHOOK")
 print("="*40)
 
 if WEBHOOK_URL:
-    payload = {
+    
+    # 1. JSON Data
+    payload_data = {
         "url": TARGET_URL,
         "status": extraction_status,
         "merged_text": final_output,
-        "drive_folder_link": folder_drive_link,
         "timestamp": datetime.now().isoformat()
     }
+
+    # 2. File Data (The ZIP file)
+    files_payload = {}
+    if downloaded_file_path and os.path.exists(downloaded_file_path):
+        print(f"📎 Attaching file: {os.path.basename(downloaded_file_path)}")
+        # Open file in Binary mode
+        files_payload['file'] = (
+            os.path.basename(downloaded_file_path), 
+            open(downloaded_file_path, 'rb'), 
+            'application/zip'
+        )
     
     print(f"📤 Sending data to: {WEBHOOK_URL}")
+    
     try:
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=300)
+        # Sending multipart/form-data
+        response = requests.post(WEBHOOK_URL, data=payload_data, files=files_payload, timeout=300)
+        
         if response.status_code == 200:
-            print("✅ SUCCESS: Data sent to Webhook.")
+            print("✅ SUCCESS: ZIP File and Text sent to Webhook.")
+        elif response.status_code == 404:
+            print("❌ ERROR 404: Webhook URL not found. Check if workflow is Active in N8N.")
         else:
             print(f"⚠️ ERROR: Webhook returned status code {response.status_code}")
+            print(f"Response: {response.text}")
+
     except Exception as e:
         print(f"❌ CONNECTION ERROR: {e}")
+        
+    # Close file if it was opened
+    if 'file' in files_payload:
+        files_payload['file'][1].close()
+
 else:
     print("⚠️ SKIPPED: No WEBHOOK_URL configured.")
-    if folder_drive_link:
-        print(f"📂 Drive Folder Link: {folder_drive_link}")
+
+# Final Cleanup
+if os.path.exists(download_dir): shutil.rmtree(download_dir, ignore_errors=True)
+if os.path.exists(extract_dir): shutil.rmtree(extract_dir, ignore_errors=True)
