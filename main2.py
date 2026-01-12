@@ -4,7 +4,6 @@ import re
 import shutil
 import zipfile
 import subprocess
-import traceback
 import unicodedata
 import requests
 from datetime import datetime
@@ -33,17 +32,14 @@ from googleapiclient.http import MediaFileUpload
 TARGET_URL = 'https://www.marchespublics.gov.ma/index.php?page=entreprise.EntrepriseDetailsConsultation&refConsultation=968924&orgAcronyme=g3h' 
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL1") 
 
-# 👇 DRIVE CONFIGURATION
-# Added default "service_account.json" so it works if env var is missed locally
+# Google Shared Drive & Service Account
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
-
-# 👇 FIXED: Renamed this to PARENT_FOLDER_ID to match the logic below
-PARENT_FOLDER_ID = '1l3fvuCwMpRXMdiJWTXo1-1WASH2NInuQ' 
-
+SHARED_DRIVE_ID = "1l3fvuCwMpRXMdiJWTXo1-1WASH2NInuQ"  # Your Shared Drive ID
 FOLDER_NAME_VAR = "Dossier_Consultation_Ref_968924" 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 print("🚀 Initializing configuration...")
+
 download_dir = os.path.join(os.getcwd(), "downloads_temp")
 extract_dir = os.path.join(os.getcwd(), "extracted_temp")
 
@@ -53,6 +49,9 @@ for d in [download_dir, extract_dir]:
         shutil.rmtree(d)
     os.makedirs(d, exist_ok=True)
 
+# -----------------------------
+# SELENIUM SETUP
+# -----------------------------
 options = webdriver.ChromeOptions()
 options.add_argument("--headless=chrome") 
 options.add_argument("--no-sandbox")
@@ -73,14 +72,13 @@ driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 30)
 print("✅ WebDriver initialized.")
 
-PDF_PAGE_LIMIT = 15 
+PDF_PAGE_LIMIT = 15
 
 # -----------------------------
 # GOOGLE DRIVE FUNCTIONS
 # -----------------------------
-
 def get_gdrive_service(sa_key_path):
-    """Authenticates and returns the Drive service object."""
+    """Authenticate and return Google Drive service."""
     if not os.path.exists(sa_key_path):
         print(f"❌ Service Account JSON not found at: {sa_key_path}")
         return None
@@ -94,14 +92,18 @@ def get_gdrive_service(sa_key_path):
         return None
 
 def create_drive_folder(service, folder_name, parent_id):
-    """Creates a new folder inside the parent folder."""
+    """Create a folder inside Shared Drive or another folder."""
     try:
         file_metadata = {
             'name': folder_name,
             'mimeType': 'application/vnd.google-apps.folder',
             'parents': [parent_id]
         }
-        folder = service.files().create(body=file_metadata, fields='id, webViewLink').execute()
+        folder = service.files().create(
+            body=file_metadata,
+            fields='id, webViewLink',
+            supportsAllDrives=True
+        ).execute()
         print(f"📁 Created Drive Folder: {folder_name} (ID: {folder.get('id')})")
         return folder.get('id'), folder.get('webViewLink')
     except Exception as e:
@@ -109,7 +111,7 @@ def create_drive_folder(service, folder_name, parent_id):
         return None, None
 
 def upload_file_to_drive(service, file_path, folder_id):
-    """Uploads a single file to a specific folder ID."""
+    """Upload a file to a specific folder in Shared Drive."""
     try:
         file_metadata = {
             'name': os.path.basename(file_path),
@@ -119,7 +121,8 @@ def upload_file_to_drive(service, file_path, folder_id):
         file = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True
         ).execute()
         print(f"   ☁️ Uploaded: {os.path.basename(file_path)}")
         return file.get('id')
@@ -128,7 +131,7 @@ def upload_file_to_drive(service, file_path, folder_id):
         return None
 
 # -----------------------------
-# TEXT EXTRACTION HELPER FUNCTIONS
+# TEXT EXTRACTION FUNCTIONS
 # -----------------------------
 def clean_extracted_text(text):
     text = unicodedata.normalize("NFKC", text)
@@ -197,20 +200,20 @@ def wait_for_download_complete(timeout=120):
 # -----------------------------
 final_output = ""
 extraction_status = "failed"
-folder_drive_link = None 
+folder_drive_link = None
 
 try:
     print(f"\n🔗 Accessing URL: {TARGET_URL}")
     driver.get(TARGET_URL)
     time.sleep(2)
 
-    # 1. Download Interaction
+    # Download interaction
     try:
         download_link = wait.until(EC.element_to_be_clickable((By.ID, "ctl0_CONTENU_PAGE_linkDownloadDce")))
         driver.execute_script("arguments[0].scrollIntoView(true);", download_link)
         download_link.click()
         
-        # Fill Form
+        # Fill form
         fields = {
             "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_nom": "Consultant",
             "ctl0_CONTENU_PAGE_EntrepriseFormulaireDemande_prenom": "External",
@@ -234,15 +237,14 @@ try:
     except Exception as e:
         print(f"❌ Error during download interaction: {e}")
 
-    # 2. Process File
+    # Process file
     downloaded_file = wait_for_download_complete()
     
     if downloaded_file:
         print(f"✅ File downloaded: {os.path.basename(downloaded_file)}")
-        
         file_list_to_process = []
 
-        # A. Unzip Locally First
+        # Unzip if needed
         if downloaded_file.lower().endswith(".zip"):
             print("📦 Unzipping file locally...")
             if extract_zip(downloaded_file, extract_dir):
@@ -254,32 +256,27 @@ try:
         else:
             file_list_to_process.append(downloaded_file)
 
-        # B. Setup Google Drive
+        # Setup Drive
         print(f"🚀 Preparing to upload {len(file_list_to_process)} files to Google Drive...")
         drive_service = get_gdrive_service(SERVICE_ACCOUNT_FILE)
         current_folder_id = None
-        
-        # 👇 CHECKING VARIABLES CORRECTLY HERE
-        if drive_service and PARENT_FOLDER_ID:
-            created_id, created_link = create_drive_folder(drive_service, FOLDER_NAME_VAR, PARENT_FOLDER_ID)
-            current_folder_id = created_id
-            folder_drive_link = created_link 
 
-        # C. Loop: Upload & Extract Text
+        if drive_service and SHARED_DRIVE_ID:
+            current_folder_id, folder_drive_link = create_drive_folder(
+                drive_service, FOLDER_NAME_VAR, SHARED_DRIVE_ID
+            )
+
+        # Upload & extract text
         extracted_texts = []
-        
         for fpath in file_list_to_process:
             fname = os.path.basename(fpath)
-            
-            # 1. Upload (if drive setup worked)
+
             if drive_service and current_folder_id:
                 upload_file_to_drive(drive_service, fpath, current_folder_id)
 
-            # 2. Extract Text
             ext = os.path.splitext(fname)[1].lower()
             text_chunk = ""
             print(f"   📖 Reading text from: {fname}")
-            
             if ext == ".pdf":
                 text_chunk = extract_text_from_pdf(fpath)
             elif ext == ".docx":
@@ -305,7 +302,7 @@ finally:
     if os.path.exists(extract_dir): shutil.rmtree(extract_dir, ignore_errors=True)
 
 # -----------------------------
-# FINAL OUTPUT & WEBHOOK
+# SEND TO WEBHOOK
 # -----------------------------
 print("\n" + "="*40)
 print("SENDING TO WEBHOOK")
