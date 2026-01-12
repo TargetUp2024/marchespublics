@@ -10,3 +10,6 @@ pytesseract>=0.3.10
 python-docx>=0.8.11
 openpyxl>=3.1.0 # For reading .xlsx files with pandas
 requests>=2.31.0
+google-api-python-client 
+google-auth-httplib2 
+google-auth-oauthlib
