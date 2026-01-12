@@ -1,4 +1,4 @@
-name: Run Tender Bot
+name: Run URL Bot
 
 on:
   # 👇 ADDED: Trigger on push to main branch if specific files change
