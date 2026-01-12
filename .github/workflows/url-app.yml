@@ -60,7 +60,8 @@ jobs:
 
       - name: Write Service Account JSON
         run: |
-          printf "%s" "${{ secrets.SERVICE_ACCOUNT_FILE }}" > service_account.json
+          echo "${{ secrets.SERVICE_ACCOUNT_FILE_B64 }}" | base64 --decode > service_account.json
+
 
 
       - name: Run script
