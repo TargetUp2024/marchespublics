@@ -34,7 +34,7 @@ TARGET_URL = 'https://www.marchespublics.gov.ma/index.php?page=entreprise.Entrep
 WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL1") 
 
 # 👇 GOOGLE DRIVE CONFIGURATION
-service_account_file = os.getenv("SERVICE_ACCOUNT_FILE")
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 GDRIVE_FOLDER_ID = '1l3fvuCwMpRXMdiJWTXo1-1WASH2NInuQ'
 FOLDER_NAME_VAR = "Dossier_Consultation_Ref_968924" 
 # You can also make it dynamic like: f"Consultation_{datetime.now().strftime('%Y%m%d')}"
