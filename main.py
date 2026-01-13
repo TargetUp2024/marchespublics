@@ -239,7 +239,7 @@ try:
 
     df = pd.DataFrame(data)
 
-    excluded_words = ["construction", "installation", "travaux", "fourniture", "achat", "equipement", "supply", "acquisition", "nettoyage"]
+    excluded_words = ["construction", "installation", "travaux", "fourniture", "achat", "equipement", "supply", "acquisition", "nettoyage","déchets"]
     df = df[~df['objet'].str.lower().str.contains('|'.join(excluded_words), na=False)]
     print(f"✅ {len(df)} valid tenders after filtering.\n")
 
