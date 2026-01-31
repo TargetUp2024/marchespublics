@@ -3,7 +3,7 @@ name: Run Tender Bot
 on:
   # Schedule at 6:00 AM GMT+1 (5:00 AM UTC)
   schedule:
-   - cron: "0 3 * * *"
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -25,28 +25,56 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
-      - name: Install System Dependencies and Browser
+      # ---------------------------------------
+      # Install OCR + DOC tools
+      # ---------------------------------------
+      - name: Install System Dependencies
         run: |
-          # Install all necessary tools for file processing
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara tesseract-ocr-eng poppler-utils antiword
-          
-          # Install Chrome browser and matching ChromeDriver
-          sudo apt-get install -y wget unzip
-          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt install -y ./google-chrome-stable_current_amd64.deb
-          DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          sudo apt-get install -y \
+            tesseract-ocr \
+            tesseract-ocr-fra \
+            tesseract-ocr-ara \
+            tesseract-ocr-eng \
+            poppler-utils \
+            antiword \
+            wget unzip jq
+
+      # ---------------------------------------
+      # Install MATCHED Chrome + Chromedriver
+      # ---------------------------------------
+      - name: Install Chrome & Chromedriver (SAFE)
+        run: |
+          VERSION=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json | jq -r '.channels.Stable.version')
+
+          echo "Using Chrome version: $VERSION"
+
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chrome-linux64.zip
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chromedriver-linux64.zip
+
+          unzip chrome-linux64.zip
           unzip chromedriver-linux64.zip
+
+          sudo mv chrome-linux64 /opt/chrome
+          sudo ln -sf /opt/chrome/chrome /usr/bin/google-chrome
+
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-          rm -rf chromedriver-linux64 chromedriver-linux64.zip google-chrome-stable_current_amd64.deb
 
+          google-chrome --version
+          chromedriver --version
+
+      # ---------------------------------------
+      # Install Python deps
+      # ---------------------------------------
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ---------------------------------------
+      # Run the bot
+      # ---------------------------------------
       - name: Run Tender Bot
         env:
           PYTHONUNBUFFERED: 1
@@ -57,16 +85,18 @@ jobs:
           N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
         run: python main.py
 
-      - name: Upload summary CSV as artifact
-        if: always() # Always run this step to capture the output file
+      # ---------------------------------------
+      # Upload results
+      # ---------------------------------------
+      - name: Upload summary CSV
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tender-results-summary
-          # *** CRITICAL FIX: The python script saves a 'summary' file ***
           path: tender_results_summary.csv
-          if-no-files-found: ignore # Don't fail if the script creates no file
+          if-no-files-found: ignore
 
-      - name: Upload debug files on failure
+      - name: Upload debug files
         if: failure()
         uses: actions/upload-artifact@v4
         with:
