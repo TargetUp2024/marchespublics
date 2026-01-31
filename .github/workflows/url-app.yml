@@ -12,7 +12,7 @@ on:
 
   # Schedule at 6:00 AM GMT+1 (5:00 AM UTC)
   schedule:
-   - cron: "0 3 * * *"
+  # - cron: "0 3 * * *"
   
   # Allows manual triggering
   workflow_dispatch:
