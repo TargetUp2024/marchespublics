@@ -1,0 +1,107 @@
+name: Run cdg Bot
+
+on:
+  # Schedule at 6:00 AM GMT+1 (5:00 AM UTC)
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+      # ---------------------------------------
+      # Install OCR + DOC tools
+      # ---------------------------------------
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            tesseract-ocr \
+            tesseract-ocr-fra \
+            tesseract-ocr-ara \
+            tesseract-ocr-eng \
+            poppler-utils \
+            antiword \
+            wget unzip jq
+
+      # ---------------------------------------
+      # Install MATCHED Chrome + Chromedriver
+      # ---------------------------------------
+      - name: Install Chrome & Chromedriver (SAFE)
+        run: |
+          VERSION=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json | jq -r '.channels.Stable.version')
+
+          echo "Using Chrome version: $VERSION"
+
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chrome-linux64.zip
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/$VERSION/linux64/chromedriver-linux64.zip
+
+          unzip chrome-linux64.zip
+          unzip chromedriver-linux64.zip
+
+          sudo mv chrome-linux64 /opt/chrome
+          sudo ln -sf /opt/chrome/chrome /usr/bin/google-chrome
+
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+
+          google-chrome --version
+          chromedriver --version
+
+      # ---------------------------------------
+      # Install Python deps
+      # ---------------------------------------
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ---------------------------------------
+      # Run the bot
+      # ---------------------------------------
+      - name: Run Tender Bot
+        env:
+          PYTHONUNBUFFERED: 1
+          URL1: ${{ secrets.URL1 }}
+          URL2: ${{ secrets.URL2 }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          N8N_WEBHOOK_URL_2: ${{ secrets.N8N_WEBHOOK_URL_2 }}
+        run: python CDG.py
+
+      # ---------------------------------------
+      # Upload results
+      # ---------------------------------------
+      - name: Upload summary CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tender-results-summary
+          path: tender_results_summary.csv
+          if-no-files-found: ignore
+
+      - name: Upload debug files
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            error_page_*.png
+            error_page_*.html
+          if-no-files-found: ignore
